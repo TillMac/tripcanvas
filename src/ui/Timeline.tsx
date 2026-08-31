@@ -5,7 +5,8 @@ import { DndContext, closestCenter, useDroppable } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useState } from "react";
-import { actions, nominatim } from "../store/index.js";
+import { actions, fetchTransit, nominatim, trip } from "../store/index.js";
+import { applyTransitLeg } from "../store/transit.js";
 import { computeDaySchedule, type DaySchedule, type LegInfo } from "../store/schedule.js";
 import { fmtHHMM } from "../ported/schedule-ops.js";
 import { haversineKm } from "../ported/geo.js";
@@ -23,19 +24,30 @@ function defaultModeFor(s: TripState, fromPid: string, toPid: string): LegMode {
   return km <= WALK_MAX_KM ? "walk" : "drive";
 }
 
-/** walk -> drive -> transit -> back to the distance default (override removed). */
-export function cycleLegMode(s: TripState, leg: LegInfo, allowTransit: boolean): void {
-  const order: LegMode[] = allowTransit ? ["walk", "drive", "transit"] : ["walk", "drive"];
+/** walk -> drive -> transit -> back to the distance default (override removed).
+ *  Transit fetches MOTIS; failure keeps the current mode and reports why. */
+export async function cycleLegMode(
+  s: TripState,
+  leg: LegInfo,
+  day: number,
+  toSid: string,
+  onStatus: (msg: string | null) => void,
+): Promise<void> {
+  const order: LegMode[] = ["walk", "drive", "transit"];
   const next = order[(order.indexOf(leg.mode) + 1) % order.length];
   const key = `${leg.fromPid}>${leg.toPid}`;
   if (next === defaultModeFor(s, leg.fromPid, leg.toPid)) {
     actions.setLegOverride("human", key, null);
-  } else if (next === "transit") {
-    // T9 wires the MOTIS fetch; until then transit is skipped via allowTransit=false.
-    actions.setLegOverride("human", key, { mode: "transit" });
-  } else {
-    actions.setLegOverride("human", key, { mode: next });
+    return;
   }
+  if (next !== "transit") {
+    actions.setLegOverride("human", key, { mode: next });
+    return;
+  }
+  onStatus("fetching transit route…");
+  const r = await applyTransitLeg(trip, fetchTransit, "human", day, toSid);
+  onStatus(r.ok ? null : r.message.replace(/^ERROR: /, ""));
+  if (!r.ok) setTimeout(() => onStatus(null), 5000);
 }
 
 function LegLine({ leg, onCycle }: { leg: LegInfo; onCycle: () => void }) {
@@ -237,14 +249,13 @@ export function Timeline({
   day,
   selectedId,
   onSelect,
-  allowTransit = false,
 }: {
   day: number;
   selectedId: string | null;
   onSelect: (id: string) => void;
-  allowTransit?: boolean;
 }) {
   const state = useTrip((s) => s);
+  const [legStatus, setLegStatus] = useState<string | null>(null);
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `day-${day}` });
   if (day < 1 || day > state.days.length) return null;
   const sched: DaySchedule = computeDaySchedule(state, day);
@@ -308,7 +319,7 @@ export function Timeline({
               <div key={st.sid}>
                 {st.legIn && (
                   <>
-                    <LegLine leg={st.legIn} onCycle={() => cycleLegMode(state, st.legIn!, allowTransit)} />
+                    <LegLine leg={st.legIn} onCycle={() => void cycleLegMode(state, st.legIn!, day, st.sid, setLegStatus)} />
                     {st.legIn.mode === "transit" && <TransitSteps leg={st.legIn} />}
                   </>
                 )}
@@ -357,6 +368,8 @@ export function Timeline({
           </span>
         </div>
       )}
+
+      {legStatus && <div className="px-2 py-1 text-xs text-amber-700">{legStatus}</div>}
 
       <div className={`px-2 py-1 text-xs ${sched.overflow ? "font-semibold text-red-600" : "text-slate-500"}`}>
         ends {fmtHHMM(sched.endMin)}{sched.overflow ? " — past 22:00" : ""}{sched.approx ? " · ≈ times approximate" : ""}

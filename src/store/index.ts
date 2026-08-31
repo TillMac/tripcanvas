@@ -4,6 +4,7 @@ import { createTripStore } from "./store.js";
 import { MatrixService } from "./matrix.js";
 import { NominatimQueue } from "./nominatim.js";
 import { loadTrip, attachPersistence } from "./persist.js";
+import { makeTransitFetcher } from "./transit.js";
 
 const storage = typeof localStorage !== "undefined" ? localStorage : undefined;
 
@@ -25,5 +26,7 @@ matrixServiceRef.current = matrixService;
 void matrixService.ensureFresh();
 
 export const nominatim = new NominatimQueue({ storage });
+
+export const fetchTransit = makeTransitFetcher();
 
 export const { store: tripStore, actions } = trip;

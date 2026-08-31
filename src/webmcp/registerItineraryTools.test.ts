@@ -8,6 +8,7 @@ function fakeDeps(): ToolDeps {
   return {
     trip: createTripStore(),
     matrix: { ensureFresh: async () => {} },
+    fetchTransit: async () => null,
     nominatim: { resolve: async () => ({ ok: false, kind: "error", message: "offline" }) },
   };
 }

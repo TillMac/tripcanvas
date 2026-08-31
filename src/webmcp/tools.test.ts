@@ -18,6 +18,7 @@ function fakeDeps() {
   const deps: ToolDeps = {
     trip,
     matrix: { ensureFresh: async () => {} },
+    fetchTransit: async () => null,
     nominatim: {
       resolve: async (q): Promise<ResolveResult> => {
         const key = q.trim().toLowerCase();

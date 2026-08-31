@@ -7,6 +7,7 @@ import { fmtHHMM } from "../ported/schedule-ops.js";
 import type { PlaceCandidate } from "../ported/place-assert.js";
 import { runArrange } from "../store/arrange.js";
 import { planTrip } from "../store/plan.js";
+import { applyTransitLeg, legTarget, type FetchTransit } from "../store/transit.js";
 import { computeDaySchedule } from "../store/schedule.js";
 import type { createTripStore } from "../store/store.js";
 import type { ResolveResult } from "../store/nominatim.js";
@@ -22,6 +23,7 @@ export interface ToolDeps {
     resolve(query: string, opts?: { deadline?: number }): Promise<ResolveResult>;
     uncachedCount?(queries: string[]): number;
   };
+  fetchTransit: FetchTransit;
 }
 
 // ── formatting helpers ─────────────────────────────────────────────────────
@@ -307,6 +309,81 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
     }),
   };
 
+  const setLegMode: RegisterToolOptions = {
+    name: "set_leg_mode",
+    description:
+      "Set how one leg is travelled: walk, drive or transit. Name the leg by the stop it departs from ([s#] id; 'lodging' for a day's first leg). Legs default to walk under about 1.2 km and drive above — call this only to override. transit fetches live routes (a few seconds) and returns the steps: lines, headsigns, where to get off. If no transit route exists the leg keeps its old mode and the result says so. Pending.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        day: { type: "number", description: "Day 1..N containing the leg." },
+        fromStop: { type: "string", description: "[s#] id the leg departs from, or 'lodging' for the day's first leg." },
+        mode: { type: "string", description: "walk | drive | transit." },
+      },
+      required: ["day", "fromStop", "mode"],
+    },
+    annotations: { readOnlyHint: false, untrustedContentHint: true },
+    execute: wrap(async (args) => {
+      const p = z
+        .object({ day: z.number().int(), fromStop: z.string().min(1), mode: z.enum(["walk", "drive", "transit"]) })
+        .safeParse(args);
+      if (!p.success) return zodErr(p.error);
+      const s = state();
+      const { day } = p.data;
+      if (day < 1 || day > s.days.length) return err(`day ${day} out of range (trip has ${s.days.length}).`);
+      const d = s.days[day - 1];
+      if (d.stops.length === 0) return err(`day ${day} has no stops.`);
+      let toSid: string;
+      if (p.data.fromStop === "lodging") {
+        toSid = d.stops[0];
+        if (!s.nights[day - 1]) return err(`day ${day} has no lodging — its first leg does not exist.`);
+      } else {
+        const from = trip.actions.moveStop; // (no-op ref to keep tree-shaken helpers honest)
+        void from;
+        const resolved = d.stops.find((x) => x === p.data.fromStop) ?? null;
+        if (!resolved) return err(`no stop [${p.data.fromStop}] on day ${day} — ids come from get_itinerary.`);
+        const i = d.stops.indexOf(resolved);
+        if (i === d.stops.length - 1) {
+          return err(`[${resolved}] is the last stop of D${day} — its leg is the return to lodging; use fromStop [${resolved}] only if a next stop exists.`);
+        }
+        toSid = d.stops[i + 1];
+      }
+
+      if (p.data.mode === "transit") {
+        const r = await applyTransitLeg(trip, deps.fetchTransit, "agent", day, toSid);
+        if (!r.ok) return r.message;
+        const s2 = state();
+        const e = lastEditId(s2);
+        const steps = r.leg.steps
+          .map((st) =>
+            st.mode === "walk"
+              ? `walk ${st.durationMin}m to ${st.toName}`
+              : `${st.line ?? "line"}${st.headsign ? ` toward ${st.headsign}` : ""}, off at ${st.toName}`,
+          )
+          .join("; ");
+        let out = `Leg ${r.target.fromLabel}->[${toSid}] transit ${r.leg.totalMin}m, ${r.leg.transfers} transfer${r.leg.transfers === 1 ? "" : "s"} [pending ${e}]`;
+        if (steps) out += `: ${steps}`;
+        out += `. ${endsPhrase(s2, day)}.`;
+        return out.length > 1500 ? out.slice(0, 1490) + "…" : out;
+      }
+
+      const t = legTarget(s, day, toSid);
+      if ("error" in t) return err(t.error);
+      trip.actions.setLegOverride(
+        "agent",
+        `${t.fromPid}>${t.toPid}`,
+        { mode: p.data.mode },
+        toSid,
+        `leg into [${toSid}] -> ${p.data.mode}`,
+      );
+      const s2 = state();
+      const e = lastEditId(s2);
+      const sched = computeDaySchedule(s2, day);
+      const leg = sched.stops.find((x) => x.sid === toSid)?.legIn;
+      return `Leg ${t.fromLabel}->[${toSid}] ${p.data.mode} ${leg?.approx ? "≈" : ""}${leg?.minutes}m [pending ${e}]; ${endsPhrase(s2, day)}.`;
+    }),
+  };
+
   const guide: RegisterToolOptions = {
     name: "get_planning_guide",
     description:
@@ -316,5 +393,5 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
     execute: wrap(() => PLANNING_GUIDE),
   };
 
-  return [...buildReadTools(deps), planTripTool, addPlace, moveStop, setTimes, setLodging, arrangeDays, guide];
+  return [...buildReadTools(deps), planTripTool, addPlace, moveStop, setTimes, setLegMode, setLodging, arrangeDays, guide];
 }

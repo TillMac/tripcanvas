@@ -28,6 +28,7 @@ function fakeDeps(opts: { failAfter?: number } = {}) {
   const deps: ToolDeps = {
     trip,
     matrix: { ensureFresh: async () => {} },
+    fetchTransit: async () => null,
     nominatim: {
       resolve: async (q, o): Promise<ResolveResult> => {
         deadlines.push(o?.deadline);
