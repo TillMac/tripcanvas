@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { DndContext, pointerWithin } from "@dnd-kit/core";
-import { actions, tripStore } from "./store/index.js";
+import { actions } from "./store/index.js";
 import { tripWarnings } from "./store/schedule.js";
 import { computeDaySchedule } from "./store/schedule.js";
 import { CandidateDrawer } from "./ui/CandidateDrawer.js";
 import { DayTabs } from "./ui/DayTabs.js";
 import { MapPane, type MapLeg, type MapMarker } from "./ui/MapPane.js";
 import { SearchBox } from "./ui/SearchBox.js";
-import { Timeline } from "./ui/Timeline.js";
+import { SchedulePanel } from "./ui/SchedulePanel.js";
 import { LodgingControl } from "./ui/LodgingControl.js";
 import { ArrangeButton, CopyButton } from "./ui/HeaderButtons.js";
 import { PendingBar } from "./ui/PendingBar.js";
@@ -185,7 +185,7 @@ export default function App({ agentAvailable }: { agentAvailable: boolean }) {
                 </p>
               </div>
             ) : (
-              <Timeline day={day} selectedId={selectedId} onSelect={setSelectedId} />
+              <SchedulePanel day={day} selectedId={selectedId} onSelect={setSelectedId} />
             )}
             <CandidateDrawer activeDay={day} />
           </div>
@@ -193,8 +193,4 @@ export default function App({ agentAvailable }: { agentAvailable: boolean }) {
       </DndContext>
     </div>
   );
-}
-
-export function __getStoreForDevtools() {
-  return tripStore.getState();
 }

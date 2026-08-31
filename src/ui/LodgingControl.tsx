@@ -1,6 +1,7 @@
 // Single trip-lodging input: anchors all nights (per-night override in T5 UI).
 import { useState } from "react";
 import { actions, nominatim, tripStore } from "../store/index.js";
+import { toPlaceInput } from "../store/nominatim.js";
 import { useTrip } from "./useTrip.js";
 
 export function LodgingControl() {
@@ -21,7 +22,7 @@ export function LodgingControl() {
       return;
     }
     if (tripStore.getState().days.length === 0) actions.ensureDays("human", 1);
-    const res = actions.setLodging("human", { name: r.place.name, lat: r.place.lat!, lon: r.place.lng!, query });
+    const res = actions.setLodging("human", toPlaceInput(r.place, query));
     setStatus("error" in res ? res.error : null);
     if (!("error" in res)) {
       setEditing(false);
@@ -47,7 +48,7 @@ export function LodgingControl() {
         autoFocus
         type="text"
         aria-label="lodging name"
-        placeholder="Hotel name + city, press Enter"
+        placeholder="Lodging name + city, press Enter"
         value={q}
         onChange={(e) => setQ(e.target.value)}
         onKeyDown={(e) => {

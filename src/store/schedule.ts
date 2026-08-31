@@ -9,6 +9,8 @@ import type { TransitLeg } from "../ported/motis.js";
 import type { LegMode, Pid, Sid, TripState } from "./types.js";
 
 export const WALK_MAX_KM = 1.2;
+/** The one leg-override key format (pair-keyed, §5). */
+export const legKey = (from: Pid, to: Pid): string => `${from}>${to}`;
 export const DRIVE_KMH = 25;
 export const UNREASONABLE_MIN = UNREASONABLE_SECONDS / 60;
 
@@ -57,7 +59,7 @@ export function legInfo(s: TripState, fromPid: Pid, toPid: Pid): LegInfo {
   const pa = s.places[fromPid];
   const pb = s.places[toPid];
   const km = haversineKm({ lat: pa.lat, lng: pa.lon }, { lat: pb.lat, lng: pb.lon });
-  const override = s.legOverrides[`${fromPid}>${toPid}`];
+  const override = s.legOverrides[legKey(fromPid, toPid)];
   const mode: LegMode = override?.mode ?? (km <= WALK_MAX_KM ? "walk" : "drive");
   if (mode === "transit" && override?.transit) {
     return { fromPid, toPid, mode, minutes: override.transit.totalMin, approx: false, transit: override.transit };

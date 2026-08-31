@@ -2,7 +2,7 @@
 // it as a pair-keyed override — the same path for the human's cycle button and
 // the agent's set_leg_mode. Retry once; failure keeps the leg's old mode.
 import { motisPlanUrl, parseMotisItinerary, withDestinationName, type TransitLeg } from "../ported/motis.js";
-import { computeDaySchedule } from "./schedule.js";
+import { computeDaySchedule, legKey } from "./schedule.js";
 import type { createTripStore } from "./store.js";
 import type { Actor, Pid, Place, Sid, TripState } from "./types.js";
 
@@ -100,7 +100,7 @@ export async function applyTransitLeg(
   }
   trip.actions.setLegOverride(
     actor,
-    `${t.fromPid}>${t.toPid}`,
+    legKey(t.fromPid, t.toPid),
     { mode: "transit", transit: leg },
     actor === "agent" ? toSid : undefined,
     `leg into [${toSid}] -> transit (${leg.totalMin}m, ${leg.transfers} transfer${leg.transfers === 1 ? "" : "s"})`,

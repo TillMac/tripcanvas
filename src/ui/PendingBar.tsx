@@ -28,7 +28,7 @@ export function PendingBar() {
       ))}
       {pend.some((p) => p.entry.op === "plan") && (
         <span className="basis-full text-[11px] text-amber-700">
-          Provenance: places chosen by your agent; travel times and geocoding from OpenStreetMap routing services.
+          Provenance: places chosen by your agent; travel times and place resolution from OpenStreetMap services.
         </span>
       )}
       <button

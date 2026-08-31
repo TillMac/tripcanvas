@@ -22,6 +22,11 @@ export type ResolveResult =
   | { ok: true; place: PlaceCandidate; cached: boolean }
   | { ok: false; kind: "none" | "excluded" | "error" | "deadline"; message: string };
 
+/** The one PlaceCandidate -> store PlaceInput conversion (used by tools + UI). */
+export function toPlaceInput(place: PlaceCandidate, query: string): { name: string; lat: number; lon: number; query: string } {
+  return { name: place.name, lat: place.lat!, lon: place.lng!, query };
+}
+
 export function normalizeQuery(q: string): string {
   return q.trim().toLowerCase().replace(/\s+/g, " ");
 }

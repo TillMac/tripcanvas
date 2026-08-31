@@ -1,4 +1,5 @@
-// The active day's schedule: arrival/departure per stop, leg rows with mode
+// SchedulePanel — the active day's schedule (CONTEXT.md: "Schedule", never edited
+// directly): arrival/departure per stop, leg rows with mode
 // cycling, free-time blocks, warnings. Every interaction dispatches the same
 // store actions the agent's tools call (ADR-0004: one truth).
 import { DndContext, closestCenter, useDroppable } from "@dnd-kit/core";
@@ -6,13 +7,16 @@ import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } 
 import { CSS } from "@dnd-kit/utilities";
 import { useState } from "react";
 import { actions, fetchTransit, nominatim, trip } from "../store/index.js";
+import { toPlaceInput } from "../store/nominatim.js";
 import { applyTransitLeg } from "../store/transit.js";
 import { computeDaySchedule, type DaySchedule, type LegInfo } from "../store/schedule.js";
 import { fmtHHMM } from "../ported/schedule-ops.js";
 import { haversineKm } from "../ported/geo.js";
-import { WALK_MAX_KM, UNREASONABLE_MIN } from "../store/schedule.js";
+import { WALK_MAX_KM, UNREASONABLE_MIN, legKey as pairKey } from "../store/schedule.js";
 import type { LegMode, TripState } from "../store/types.js";
 import { useTrip } from "./useTrip.js";
+
+const MODE_ICON: Record<LegMode, string> = { walk: "\u{1F6B6}", drive: "\u{1F697}", transit: "\u{1F687}" };
 
 const DWELL_OPTIONS = [15, 30, 45, 60, 90, 120, 150, 180, 240];
 const FREE_OPTIONS = [15, 30, 45, 60, 90, 120];
@@ -35,7 +39,7 @@ export async function cycleLegMode(
 ): Promise<void> {
   const order: LegMode[] = ["walk", "drive", "transit"];
   const next = order[(order.indexOf(leg.mode) + 1) % order.length];
-  const key = `${leg.fromPid}>${leg.toPid}`;
+  const key = pairKey(leg.fromPid, leg.toPid);
   if (next === defaultModeFor(s, leg.fromPid, leg.toPid)) {
     actions.setLegOverride("human", key, null);
     return;
@@ -51,7 +55,7 @@ export async function cycleLegMode(
 }
 
 function LegLine({ leg, onCycle }: { leg: LegInfo; onCycle: () => void }) {
-  const icon = leg.mode === "walk" ? "\u{1F6B6}" : leg.mode === "drive" ? "\u{1F697}" : "\u{1F687}";
+  const icon = MODE_ICON[leg.mode];
   return (
     <div className="flex items-center gap-2 py-1 pl-3 text-[11px] text-slate-500">
       <span className="text-slate-300">┊</span>
@@ -124,7 +128,7 @@ function StopRow({
       <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
         <select
           aria-label={`${name} dwell minutes`}
-          value={DWELL_OPTIONS.includes(dwellMin) ? dwellMin : dwellMin}
+          value={dwellMin}
           onChange={(e) => actions.setDwell("human", sid, parseInt(e.target.value, 10))}
           className="rounded border border-slate-300 bg-white px-1 py-0.5 text-[10px] text-slate-700"
         >
@@ -174,7 +178,7 @@ function FreeRow({ label, start, minutes, onChange, onRemove }: {
       <span className="flex-1 font-medium">{label}</span>
       <select
         aria-label="free time minutes"
-        value={FREE_OPTIONS.includes(minutes) ? minutes : minutes}
+        value={minutes}
         onChange={(e) => onChange(parseInt(e.target.value, 10))}
         className="rounded border border-yellow-300 bg-white px-1 py-0.5 text-[10px]"
       >
@@ -203,7 +207,7 @@ function NightControl({ night, label }: { night: number; label: string }) {
       setStatus(r.message);
       return;
     }
-    const res = actions.setLodging("human", { name: r.place.name, lat: r.place.lat!, lon: r.place.lng!, query }, [night]);
+    const res = actions.setLodging("human", toPlaceInput(r.place, query), [night]);
     setStatus("error" in res ? res.error : null);
     if (!("error" in res)) {
       setEditing(false);
@@ -245,7 +249,7 @@ function NightControl({ night, label }: { night: number; label: string }) {
   );
 }
 
-export function Timeline({
+export function SchedulePanel({
   day,
   selectedId,
   onSelect,
@@ -363,7 +367,7 @@ export function Timeline({
         <div className="flex items-center gap-2 py-1 pl-3 text-[11px] text-slate-500">
           <span className="text-slate-300">┊</span>
           <span>
-            back to lodging {sched.backLeg.mode === "walk" ? "\u{1F6B6}" : sched.backLeg.mode === "drive" ? "\u{1F697}" : "\u{1F687}"}{" "}
+            back to lodging {MODE_ICON[sched.backLeg.mode]}{" "}
             {sched.backLeg.approx ? "≈" : ""}{sched.backLeg.minutes} min
           </span>
         </div>

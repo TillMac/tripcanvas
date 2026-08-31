@@ -159,7 +159,7 @@ export function renderPendingSection(s: TripState): string {
  * ~1,400 chars unless a single day is requested) + the two agent sections,
  * which are ALWAYS included so a re-read is never empty.
  */
-export function renderAgentItinerary(s: TripState, day?: number): string {
+export function renderAgentView(s: TripState, day?: number): string {
   const sections = `${renderHumanChanges(s)}\n${renderPendingSection(s)}`;
   if (s.days.length === 0 && s.candidates.length === 0) {
     return `Trip is empty — use plan_trip or add_place.\n${sections}`;
@@ -181,7 +181,7 @@ export function renderAgentItinerary(s: TripState, day?: number): string {
 /** get_changes: revision-by-revision feed with per-edit fates. */
 export function renderChanges(s: TripState, since: number): string {
   if (since < s.historyStartRev) {
-    return `History starts at rev ${s.historyStartRev + 1}; full state instead:\n${renderAgentItinerary(s)}`;
+    return `History starts at rev ${s.historyStartRev + 1}; full state instead:\n${renderAgentView(s)}`;
   }
   const entries = s.log.filter((e) => e.rev > since);
   const pend = pendingEdits(s);

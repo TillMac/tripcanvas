@@ -2,6 +2,7 @@
 // through the ONE app-wide queue the tools share.
 import { useState } from "react";
 import { actions, nominatim, tripStore } from "../store/index.js";
+import { toPlaceInput } from "../store/nominatim.js";
 import { useTrip } from "./useTrip.js";
 
 export function SearchBox({ activeDay }: { activeDay: number }) {
@@ -22,7 +23,7 @@ export function SearchBox({ activeDay }: { activeDay: number }) {
         setStatus(r.message);
         return;
       }
-      const input = { name: r.place.name, lat: r.place.lat!, lon: r.place.lng!, query };
+      const input = toPlaceInput(r.place, query);
       if (target === "candidates") {
         const res = actions.addResolvedStop("human", input, {});
         setStatus(`added [${res.sid}] ${r.place.name} to candidates`);

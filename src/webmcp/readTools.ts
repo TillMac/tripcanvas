@@ -3,22 +3,11 @@
 // readOnlyHint stays honest). revert_pending touches the agent's own
 // still-pending edits only.
 import { z } from "zod";
-import { renderAgentItinerary, renderChanges } from "../store/handback.js";
+import { renderAgentView, renderChanges } from "../store/handback.js";
 import { editStatus, pendingEdits } from "../store/store.js";
 import type { RegisterToolOptions } from "./modelContext.js";
+import { err, wrap } from "./result.js";
 import type { ToolDeps } from "./tools.js";
-
-const err = (msg: string) => `ERROR: ${msg}`;
-
-function wrap(execute: (args: Record<string, unknown>) => Promise<string> | string) {
-  return async (args: Record<string, unknown>): Promise<string> => {
-    try {
-      return await execute(args ?? {});
-    } catch (e) {
-      return err(`${e instanceof Error ? e.message : String(e)} — try again.`);
-    }
-  };
-}
 
 export function buildReadTools(deps: ToolDeps): RegisterToolOptions[] {
   const { trip } = deps;
@@ -41,7 +30,7 @@ export function buildReadTools(deps: ToolDeps): RegisterToolOptions[] {
     execute: wrap((args) => {
       const p = z.object({ day: z.number().int().optional() }).safeParse(args);
       if (!p.success) return err("day must be a whole number.");
-      const out = renderAgentItinerary(state(), p.data.day);
+      const out = renderAgentView(state(), p.data.day);
       if (!out.startsWith("ERROR")) trip.actions.advanceAgentRead();
       return out;
     }),

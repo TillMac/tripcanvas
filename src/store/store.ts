@@ -640,7 +640,11 @@ export function createTripStore(deps: TripStoreDeps = {}) {
       return { reverted: status.pendingSids, kept: status.keptSids };
     },
 
-    /** One undo history for both actors: pop the top log entry, apply its inverse. */
+    /** One undo history for both actors: pop the top log entry, apply its inverse.
+     *  Deliberate tradeoff (§5 "ONE undo stack = the log"): a popped entry
+     *  vanishes from the change feed, so a human Ctrl+Z is not narrated to the
+     *  agent — the always-present PENDING section and full-state reads keep the
+     *  agent's next look truthful. */
     undo(): { undone: string } | { error: string } {
       const s = get();
       const entry = s.log[s.log.length - 1];

@@ -9,7 +9,7 @@ import { arrangeTrip, orderDayStops } from "./arrange.js";
 import { renderWarnings } from "./handback.js";
 import { normalizeQuery, type ResolveResult } from "./nominatim.js";
 import { computeDaySchedule } from "./schedule.js";
-import { initialTrip, type createTripStore } from "./store.js";
+import { DEFAULT_DWELL_MIN, initialTrip, type createTripStore } from "./store.js";
 import type { DayRec, Pid, Place, Sid, Stop, TripState } from "./types.js";
 
 export const PLAN_NAME_CAP = 12;
@@ -26,8 +26,16 @@ export interface PlanArgs {
 
 export interface PlanDeps {
   trip: Pick<ReturnType<typeof createTripStore>, "store" | "actions">;
-  matrix: { ensureFresh(): Promise<void> };
-  nominatim: { resolve(query: string, opts?: { deadline?: number }): Promise<ResolveResult> };
+  matrix: {
+    ensureFresh(): Promise<void>;
+    fetchTablesFor?(
+      places: { id: string; lat: number; lon: number }[],
+    ): Promise<{ walk: import("../ported/osrm.js").DurationMatrix; drive: import("../ported/osrm.js").DurationMatrix; ids: string[] } | null>;
+  };
+  nominatim: {
+    resolve(query: string, opts?: { deadline?: number }): Promise<ResolveResult>;
+    uncachedCount?(queries: string[]): number;
+  };
   now?: () => number;
 }
 
@@ -48,10 +56,13 @@ export async function planTrip(deps: PlanDeps, args: PlanArgs): Promise<string> 
   }
   const flat = (args.places ?? args.days!.flat()).map((x) => x.trim()).filter(Boolean);
   const uniqueNames = [...new Map(flat.map((n) => [normalizeQuery(n), n])).values()];
-  const totalNames = uniqueNames.length + (args.lodging ? 1 : 0);
-  if (totalNames > PLAN_NAME_CAP) {
+  // §3 step 1: the cap counts RESOLVE JOBS — unique uncached names (+ lodging).
+  // Geocached names cost no queue slot, so a warm rerun of a big trip passes.
+  const allNames = [...uniqueNames, ...(args.lodging ? [args.lodging] : [])];
+  const resolveJobs = nominatim.uncachedCount?.(allNames) ?? allNames.length;
+  if (resolveJobs > PLAN_NAME_CAP) {
     return err(
-      `${totalNames} names exceeds the ${PLAN_NAME_CAP}-per-call cap (resolving is rate-limited to ~1/s) — plan the ${PLAN_NAME_CAP} most important, add the rest with add_place.`,
+      `${resolveJobs} names exceeds the ${PLAN_NAME_CAP}-per-call cap (resolving is rate-limited to ~1/s) — plan the ${PLAN_NAME_CAP} most important, add the rest with add_place.`,
     );
   }
   if (flat.length === 0) return err("no place names given.");
@@ -112,14 +123,23 @@ export async function planTrip(deps: PlanDeps, args: PlanArgs): Promise<string> 
       const pid = `p${nextP++}`;
       const sid = `s${nextS++}`;
       places[pid] = { id: pid, name: place.name, lat: place.lat!, lon: place.lng!, query: norm };
-      stops[sid] = { place: pid, dwellMin: 60, freeAfterMin: 0 };
+      stops[sid] = { place: pid, dwellMin: DEFAULT_DWELL_MIN, freeAfterMin: 0 };
       sidByNorm.set(norm, sid);
     }
     const nights: (Pid | null)[] = Array.from({ length: dayCount }, () => lodgingPid);
 
+    // §3 step 4: two OSRM /table calls in parallel over all resolved places +
+    // lodging, awaited inline — grouping and ordering run on REAL travel
+    // times. Failure falls back to haversine estimates (never fatal).
+    const tables = (await deps.matrix.fetchTablesFor?.(
+      Object.values(places).map((pl) => ({ id: pl.id, lat: pl.lat, lon: pl.lon })),
+    )) ?? null;
     let days: DayRec[];
     let capOverflow: Sid[] = [];
     const synthetic: TripState = { ...initialTrip(), places, stops, nights };
+    if (tables) {
+      synthetic.matrices = { walk: tables.walk, drive: tables.drive, ids: tables.ids, forHash: "", stale: false };
+    }
     if (args.days) {
       // Pre-grouped: grouping kept verbatim; each day still ordered from lodging.
       days = args.days.map((group) => {

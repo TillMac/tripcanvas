@@ -29,7 +29,7 @@ the page *is* the interface for both actors.
 - **Reviewable AI.** Every agent change is applied-but-pending: amber
   highlight, per-edit Revert, Accept all; editing a pending stop accepts it
   implicitly, so review never blocks flow. One undo history covers both.
-- **Real schedules, not wish lists.** The page computes geocoding, walk/drive
+- **Real schedules, not wish lists.** The page computes place resolution, walk/drive
   matrices, day clustering, ordering, and timed schedules deterministically
   (ADR-0002); the agent contributes names and judgment
   (`get_planning_guide`), never arithmetic.

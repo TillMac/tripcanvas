@@ -138,3 +138,103 @@ describe("plan_trip", () => {
     expect(out).toContain("No lodging set — set_lodging to anchor days.");
   });
 });
+
+// ── T7 timing: fake-timer worst case (design §3 timing math) ────────────────
+import { vi, afterEach } from "vitest";
+import { NominatimQueue } from "../store/nominatim.js";
+
+afterEach(() => vi.useRealTimers());
+
+describe("plan_trip timing under fake timers", () => {
+  it("worst case: slow Nominatim + 22s deadline -> completes well under 30s with the rest time-limited", async () => {
+    vi.useFakeTimers();
+    const t0 = Date.now();
+    // Every request takes 2.9s (just under the queue's 3s timeout).
+    const fetchFn = vi.fn(
+      (url: string) =>
+        new Promise((resolve) =>
+          setTimeout(() => {
+            const q = new URL(url).searchParams.get("q") ?? "x";
+            const i = parseInt(q.replace(/\D/g, ""), 10) || 0;
+            resolve({
+              ok: true,
+              status: 200,
+              json: async () => [{
+                osm_type: "node", osm_id: i, lat: String(35.6 + i * 0.01), lon: String(139.7 + i * 0.005),
+                class: "tourism", type: "attraction", display_name: `${q}, Tokyo, Japan`,
+                address: { city: "Tokyo" }, namedetails: { name: q },
+              }],
+            });
+          }, 2900),
+        ),
+    ) as unknown as typeof fetch;
+    const queue = new NominatimQueue({ fetchFn });
+    const trip = createTripStore();
+    const deps: ToolDeps = { trip, matrix: { ensureFresh: async () => {} }, fetchTransit: async () => null, nominatim: queue };
+    const tools = Object.fromEntries(buildTools(deps).map((t) => [t.name, t]));
+    const names = Array.from({ length: 12 }, (_, i) => `Spot ${i + 1}`);
+    let finishedAt = 0;
+    const done = (tools.plan_trip.execute({ places: names, dayCount: 3 }) as Promise<string>).then((r) => {
+      finishedAt = Date.now(); // fake-clock time when the tool actually returned
+      return r;
+    });
+    await vi.advanceTimersByTimeAsync(35_000);
+    const out = await done;
+    const elapsed = finishedAt - t0;
+    expect(out).toMatch(/^Planned 3 days/);
+    expect(out).toContain("(time limit)");
+    expect(elapsed).toBeLessThanOrEqual(27_000); // §3: pathological ceiling ~27s < the 30s budget
+    expect(trip.store.getState().days.flatMap((d) => d.stops).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("warm geocache: the cap counts resolve jobs, so 12 cached names + extras pass", async () => {
+    const trip = createTripStore();
+    const deps: ToolDeps = {
+      trip,
+      matrix: { ensureFresh: async () => {} },
+      fetchTransit: async () => null,
+      nominatim: {
+        uncachedCount: () => 0, // everything cached — zero queue slots needed
+        resolve: async (q) => ({
+          ok: true, cached: true,
+          place: { placeId: q, name: q, lat: 35.6 + (q.length % 9) * 0.01, lng: 139.7 + (q.length % 7) * 0.01 },
+        }),
+      },
+    };
+    const tools = Object.fromEntries(buildTools(deps).map((t) => [t.name, t]));
+    const names = Array.from({ length: 14 }, (_, i) => `Cached place ${String.fromCharCode(65 + i)}${"x".repeat(i)}`);
+    const out = (await tools.plan_trip.execute({ places: names, dayCount: 4 })) as string;
+    expect(out).toMatch(/^Planned 4 days/);
+    expect(out).toContain("(0 fresh, 14 cached)");
+  });
+
+  it("grouping uses inline-fetched OSRM tables when the matrix service provides them", async () => {
+    const trip = createTripStore();
+    let asked: string[] = [];
+    const deps: ToolDeps = {
+      trip,
+      matrix: {
+        ensureFresh: async () => {},
+        fetchTablesFor: async (places) => {
+          asked = places.map((p) => p.id);
+          const n = places.length;
+          const ids = places.map((p) => p.id).sort();
+          const row = Array.from({ length: n }, (_, j) => j * 300);
+          const table = Array.from({ length: n }, () => row.slice());
+          return { walk: table, drive: table, ids };
+        },
+      },
+      fetchTransit: async () => null,
+      nominatim: {
+        resolve: async (q) => ({
+          ok: true, cached: true,
+          place: { placeId: q, name: q, lat: 35.6 + (q.length % 5) * 0.05, lng: 139.7 },
+        }),
+      },
+    };
+    const tools = Object.fromEntries(buildTools(deps).map((t) => [t.name, t]));
+    const out = (await tools.plan_trip.execute({ places: ["Aa", "Bbb", "Cccc", "Ddddd"], dayCount: 2 })) as string;
+    expect(out).toMatch(/^Planned 2 days, 4 stops/);
+    expect(asked.length).toBe(4); // tables fetched over all resolved places BEFORE grouping
+  });
+});

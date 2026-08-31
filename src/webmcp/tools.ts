@@ -18,13 +18,24 @@ import type { RegisterToolOptions } from "./modelContext.js";
 
 export interface ToolDeps {
   trip: Pick<ReturnType<typeof createTripStore>, "store" | "actions">;
-  matrix: { ensureFresh(): Promise<void> };
+  matrix: {
+    ensureFresh(): Promise<void>;
+    /** plan_trip's inline pre-grouping tables (§3 step 4); optional in fakes. */
+    fetchTablesFor?(
+      places: { id: string; lat: number; lon: number }[],
+    ): Promise<{ walk: import("../ported/osrm.js").DurationMatrix; drive: import("../ported/osrm.js").DurationMatrix; ids: string[] } | null>;
+  };
   nominatim: {
     resolve(query: string, opts?: { deadline?: number }): Promise<ResolveResult>;
     uncachedCount?(queries: string[]): number;
   };
   fetchTransit: FetchTransit;
 }
+
+import { err, wrap, zodErr } from "./result.js";
+import { toPlaceInput } from "../store/nominatim.js";
+import { legKey } from "../store/schedule.js";
+import { DEFAULT_DWELL_MIN } from "../store/store.js";
 
 // ── formatting helpers ─────────────────────────────────────────────────────
 function resolvedLabel(place: PlaceCandidate): string {
@@ -43,23 +54,6 @@ function endsPhrase(s: TripState, day: number, withNoOverflow = false): string {
 
 function lastEditId(s: TripState): string {
   return s.log[s.log.length - 1]?.editId ?? "?";
-}
-
-const err = (msg: string) => `ERROR: ${msg}`;
-
-function wrap(execute: (args: Record<string, unknown>) => Promise<string> | string) {
-  return async (args: Record<string, unknown>): Promise<string> => {
-    try {
-      return await execute(args ?? {});
-    } catch (e) {
-      return err(`${e instanceof Error ? e.message : String(e)} — the trip is unchanged, try again.`);
-    }
-  };
-}
-
-function zodErr(e: z.ZodError): string {
-  const i = e.issues[0];
-  return err(`invalid ${i.path.join(".") || "arguments"}: ${i.message}`);
 }
 
 // ── tools ──────────────────────────────────────────────────────────────────
@@ -100,14 +94,14 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
       if (!r.ok) return err(r.message);
       const res = trip.actions.addResolvedStop(
         "agent",
-        { name: r.place.name, lat: r.place.lat!, lon: r.place.lng!, query: p.data.name },
+        toPlaceInput(r.place, p.data.name),
         { day: p.data.day, position: p.data.position, dwellMin: p.data.dwellMinutes },
       );
       await matrix.ensureFresh();
       const s2 = state();
       const e = lastEditId(s2);
       if (res.day === 0) return `Added [${res.sid}] ${resolvedLabel(r.place)} as a candidate [pending ${e}].`;
-      const dwell = p.data.dwellMinutes ?? 60;
+      const dwell = p.data.dwellMinutes ?? DEFAULT_DWELL_MIN;
       return `Added [${res.sid}] ${resolvedLabel(r.place)} to D${res.day} pos${res.position}, dwell ${dwell} [pending ${e}]. ${endsPhrase(s2, res.day, true)}.`;
     }),
   };
@@ -223,11 +217,7 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
       }
       const r = await nominatim.resolve(p.data.name);
       if (!r.ok) return err(r.message);
-      const res = trip.actions.setLodging(
-        "agent",
-        { name: r.place.name, lat: r.place.lat!, lon: r.place.lng!, query: p.data.name },
-        p.data.nights,
-      );
+      const res = trip.actions.setLodging("agent", toPlaceInput(r.place, p.data.name), p.data.nights);
       if ("error" in res) return err(res.error);
       await matrix.ensureFresh();
       const s2 = state();
@@ -338,8 +328,6 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
         toSid = d.stops[0];
         if (!s.nights[day - 1]) return err(`day ${day} has no lodging — its first leg does not exist.`);
       } else {
-        const from = trip.actions.moveStop; // (no-op ref to keep tree-shaken helpers honest)
-        void from;
         const resolved = d.stops.find((x) => x === p.data.fromStop) ?? null;
         if (!resolved) return err(`no stop [${p.data.fromStop}] on day ${day} — ids come from get_itinerary.`);
         const i = d.stops.indexOf(resolved);
@@ -371,7 +359,7 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
       if ("error" in t) return err(t.error);
       trip.actions.setLegOverride(
         "agent",
-        `${t.fromPid}>${t.toPid}`,
+        legKey(t.fromPid, t.toPid),
         { mode: p.data.mode },
         toSid,
         `leg into [${toSid}] -> ${p.data.mode}`,

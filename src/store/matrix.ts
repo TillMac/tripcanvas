@@ -60,6 +60,27 @@ export class MatrixService {
     if (placedHash(s2) !== s2.matrices.forHash) await this.refresh();
   }
 
+  /** Fetch walk+drive tables for an explicit place set (plan_trip §3 step 4,
+   *  BEFORE grouping) and seed the per-hash cache so the post-commit refresh
+   *  is instant. Returns null on failure (caller falls back to estimates). */
+  async fetchTablesFor(
+    places: { id: string; lat: number; lon: number }[],
+  ): Promise<{ walk: DurationMatrix; drive: DurationMatrix; ids: string[] } | null> {
+    const ids = places.map((p) => p.id).sort();
+    const hash = ids.join(";");
+    const byId = new Map(places.map((p) => [p.id, p]));
+    const cached = this.cacheGet(hash);
+    if (cached) return { ...cached, ids };
+    const coords = ids.map((pid) => `${byId.get(pid)!.lon},${byId.get(pid)!.lat}`).join(";");
+    try {
+      const [walk, drive] = await Promise.all([this.fetchTable("foot", coords), this.fetchTable("car", coords)]);
+      this.cacheSet(hash, walk, drive);
+      return { walk, drive, ids };
+    } catch {
+      return null;
+    }
+  }
+
   private refresh(): Promise<void> {
     if (this.inflight) return this.inflight;
     this.inflight = this.doRefresh().finally(() => {
