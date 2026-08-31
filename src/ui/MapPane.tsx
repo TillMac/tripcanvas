@@ -6,7 +6,8 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { LegMode } from "../store/types.js";
 
-const TILE_URL = "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
+// OSM standard tiles: keyless; CARTO voyager now watermarks without an API key.
+const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 
 export interface MapMarker {
   id: string;
@@ -89,9 +90,8 @@ export function MapPane({
     const map = L.map(elRef.current).setView([35.681, 139.767], 12);
     L.tileLayer(TILE_URL, {
       attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-      subdomains: "abcd",
-      maxZoom: 20,
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
     }).addTo(map);
     layerRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;

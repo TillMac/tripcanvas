@@ -25,10 +25,10 @@ describe("nominatimSearchUrl", () => {
 });
 
 describe("parseNominatim", () => {
-  it("extracts placeId/name/types/coords/city/country", () => {
+  it("extracts placeId/name/types/coords/city/country (English-first name)", () => {
     const [p] = parseNominatim(sample);
     expect(p.placeId).toBe("way/173154847");
-    expect(p.name).toBe("Sensō-ji");
+    expect(p.name).toBe("Senso-ji"); // display_name first segment (accept-language=en) beats the local namedetails.name
     expect(p.types).toEqual(["tourism", "attraction"]);
     expect(p.lat).toBeCloseTo(35.7148);
     expect(p.lng).toBeCloseTo(139.7967);

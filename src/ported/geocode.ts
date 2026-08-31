@@ -24,9 +24,12 @@ export function parseNominatim(res: unknown): PlaceCandidate[] {
     const typ = typeof r["type"] === "string" ? (r["type"] as string) : undefined;
     const types = [cls, typ].filter((x): x is string => !!x);
     const displayName = typeof r["display_name"] === "string" ? (r["display_name"] as string) : "";
+    // English-first (accept-language=en): explicit name:en, then the localized
+    // display_name's first segment, then the local name (live Nominatim returns
+    // Japanese in namedetails.name for Tokyo POIs).
     out.push({
       placeId: `${r["osm_type"] ?? "?"}/${r["osm_id"] ?? "?"}`,
-      name: namedetails["name"] ?? displayName.split(",")[0] ?? "",
+      name: namedetails["name:en"] ?? (displayName.split(",")[0] || undefined) ?? namedetails["name"] ?? "",
       types: types.length ? types : undefined,
       lat,
       lng,
