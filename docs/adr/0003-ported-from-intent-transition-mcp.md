@@ -1,0 +1,3 @@
+# Ported from intent-transition-mcp
+
+The pure itinerary logic (schedule, insertion, route matrices, geo, OSRM/MOTIS/Nominatim/Overpass clients, place gates, schemas) and the route-map UI are ported from the author's own pre-challenge project `intent-transition-mcp` (a Claude-connector MCP server + ext-apps widgets, June–July 2026), with the server, auth and host coupling removed. The WebMCP Challenge scores only work done after 2026-08-25, so the ported code lives in its own directory, clearly separated from the WebMCP tool layer (which is entirely new), and the README keeps a "Prior work vs. new work" section.
