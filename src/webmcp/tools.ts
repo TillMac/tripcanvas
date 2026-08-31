@@ -6,6 +6,7 @@ import { z } from "zod";
 import { fmtHHMM } from "../ported/schedule-ops.js";
 import type { PlaceCandidate } from "../ported/place-assert.js";
 import { runArrange } from "../store/arrange.js";
+import { planTrip } from "../store/plan.js";
 import { computeDaySchedule } from "../store/schedule.js";
 import type { createTripStore } from "../store/store.js";
 import type { ResolveResult } from "../store/nominatim.js";
@@ -273,6 +274,38 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
     }),
   };
 
+  const planTripTool: RegisterToolOptions = {
+    name: "plan_trip",
+    description:
+      "Plan a whole trip from place names. Give places plus dayCount, or days you grouped yourself (grouping kept; each day is still ordered by travel time). Max 12 names per call including lodging — resolving is rate-limited (~1/s). The page resolves names, assigns days, orders each day from its lodging, and computes a timed schedule. Unresolved names are skipped and listed, never fatal. Everything lands pending until the human reviews it. Overwriting an existing trip needs replace:true.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        places: { type: "array", items: { type: "string" }, description: "Flat place names, e.g. 'Ghibli Museum, Mitaka'. Use with dayCount, or give days instead. 12 names max incl. lodging." },
+        days: { type: "array", items: { type: "array", items: { type: "string" } }, description: "Pre-grouped names, one inner array per day. Grouping kept; each day still reordered by travel time." },
+        dayCount: { type: "number", description: "Number of days, 1-7. Required with places; ignored with days." },
+        lodging: { type: "string", description: "Lodging name, applies to all nights. Per-night lodging: set_lodging afterwards." },
+        dayStart: { type: "string", description: "HH:MM start for every day. Default 09:00." },
+        replace: { type: "boolean", description: "Must be true to overwrite an existing trip." },
+      },
+    },
+    annotations: { readOnlyHint: false, untrustedContentHint: true },
+    execute: wrap(async (args) => {
+      const p = z
+        .object({
+          places: z.array(z.string()).optional(),
+          days: z.array(z.array(z.string())).optional(),
+          dayCount: z.number().int().optional(),
+          lodging: z.string().optional(),
+          dayStart: z.string().optional(),
+          replace: z.boolean().optional(),
+        })
+        .safeParse(args);
+      if (!p.success) return zodErr(p.error);
+      return planTrip({ trip, matrix, nominatim }, p.data);
+    }),
+  };
+
   const guide: RegisterToolOptions = {
     name: "get_planning_guide",
     description:
@@ -282,5 +315,5 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
     execute: wrap(() => PLANNING_GUIDE),
   };
 
-  return [addPlace, moveStop, setTimes, setLodging, arrangeDays, guide];
+  return [planTripTool, addPlace, moveStop, setTimes, setLodging, arrangeDays, guide];
 }

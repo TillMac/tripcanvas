@@ -26,6 +26,11 @@ export function PendingBar() {
           </button>
         </span>
       ))}
+      {pend.some((p) => p.entry.op === "plan") && (
+        <span className="basis-full text-[11px] text-amber-700">
+          Provenance: places chosen by your agent; travel times and geocoding from OpenStreetMap routing services.
+        </span>
+      )}
       <button
         type="button"
         className="ml-auto rounded bg-amber-600 px-2 py-1 font-semibold text-white hover:bg-amber-700"

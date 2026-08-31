@@ -30,7 +30,7 @@ function driveMinutes(s: TripState, a: Pid, b: Pid): number {
   return (haversineKm({ lat: pa.lat, lng: pa.lon }, { lat: pb.lat, lng: pb.lon }) / 25) * 60;
 }
 
-function orderDay(s: TripState, sids: Sid[], anchor: Pid | null): Sid[] {
+export function orderDayStops(s: TripState, sids: Sid[], anchor: Pid | null): Sid[] {
   if (sids.length <= 1) return sids.slice();
   const pid = (sid: Sid) => s.stops[sid].place;
   // Greedy nearest-neighbour from the anchor (or the first stop).
@@ -137,7 +137,7 @@ export function arrangeTrip(s: TripState, dayCountOpt?: number): ArrangeOutcome 
   // Order each day from its night's start anchor; keep existing day starts.
   const days: DayRec[] = Array.from({ length: D }, (_, i) => ({
     start: s.days[i]?.start ?? DEFAULT_DAY_START,
-    stops: groups[i] ? orderDay(s, groups[i], nights[i] ?? null) : [],
+    stops: groups[i] ? orderDayStops(s, groups[i], nights[i] ?? null) : [],
     ...(s.days[i]?.freeStartMin ? { freeStartMin: s.days[i].freeStartMin } : {}),
   }));
 
