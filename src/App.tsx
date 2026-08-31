@@ -9,6 +9,7 @@ import { MapPane, type MapLeg, type MapMarker } from "./ui/MapPane.js";
 import { SearchBox } from "./ui/SearchBox.js";
 import { Timeline } from "./ui/Timeline.js";
 import { LodgingControl } from "./ui/LodgingControl.js";
+import { ArrangeButton, CopyButton } from "./ui/HeaderButtons.js";
 import { useTrip } from "./ui/useTrip.js";
 
 function useUndoKey() {
@@ -134,6 +135,8 @@ export default function App({ agentAvailable }: { agentAvailable: boolean }) {
         >
           ↶ Undo
         </button>
+        <ArrangeButton />
+        <CopyButton />
         <NewTripButton />
       </header>
 

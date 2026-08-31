@@ -4,7 +4,8 @@
 import { DndContext, closestCenter, useDroppable } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { actions } from "../store/index.js";
+import { useState } from "react";
+import { actions, nominatim } from "../store/index.js";
 import { computeDaySchedule, type DaySchedule, type LegInfo } from "../store/schedule.js";
 import { fmtHHMM } from "../ported/schedule-ops.js";
 import { haversineKm } from "../ported/geo.js";
@@ -175,6 +176,63 @@ function FreeRow({ label, start, minutes, onChange, onRemove }: {
   );
 }
 
+
+function NightControl({ night, label }: { night: number; label: string }) {
+  const current = useTrip((s) => (s.nights[night] ? s.places[s.nights[night]!]?.name : null));
+  const [editing, setEditing] = useState(false);
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+  async function submit() {
+    const query = q.trim();
+    if (!query) return;
+    setStatus("resolving…");
+    const r = await nominatim.resolve(query);
+    if (!r.ok) {
+      setStatus(r.message);
+      return;
+    }
+    const res = actions.setLodging("human", { name: r.place.name, lat: r.place.lat!, lon: r.place.lng!, query }, [night]);
+    setStatus("error" in res ? res.error : null);
+    if (!("error" in res)) {
+      setEditing(false);
+      setQ("");
+    }
+  }
+  if (!editing) {
+    return (
+      <span className="flex items-center gap-1 text-[11px] text-slate-500">
+        {label}: {current ?? "—"}
+        <button
+          type="button"
+          aria-label={`change ${label} lodging`}
+          onClick={() => setEditing(true)}
+          className="rounded border border-slate-200 px-1 text-[10px] text-slate-400 hover:border-slate-300"
+        >
+          change
+        </button>
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1 text-[11px]">
+      <input
+        autoFocus
+        type="text"
+        aria-label={`${label} lodging name`}
+        placeholder="Lodging name + city, Enter"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") void submit();
+          if (e.key === "Escape") setEditing(false);
+        }}
+        className="w-44 rounded border border-slate-300 bg-white px-1 py-0.5 text-[11px]"
+      />
+      {status && <span className="max-w-[12rem] truncate text-slate-500">{status}</span>}
+    </span>
+  );
+}
+
 export function Timeline({
   day,
   selectedId,
@@ -302,6 +360,11 @@ export function Timeline({
 
       <div className={`px-2 py-1 text-xs ${sched.overflow ? "font-semibold text-red-600" : "text-slate-500"}`}>
         ends {fmtHHMM(sched.endMin)}{sched.overflow ? " — past 22:00" : ""}{sched.approx ? " · ≈ times approximate" : ""}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3 px-2 py-1">
+        {day === 1 && <NightControl night={0} label="starts at" />}
+        {day < state.days.length && <NightControl night={day} label="tonight" />}
       </div>
 
       {day === state.days.length && ids.length > 0 && (
