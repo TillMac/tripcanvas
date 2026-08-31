@@ -1,0 +1,286 @@
+// The WebMCP tool layer (docs/design/tool-layer.md §1-§2). Every execute is a
+// thin adapter: zod-parse -> the SAME exported store action the UI buttons
+// call (actor "agent") -> await the matrix -> format the result string.
+// Failures are explanatory "ERROR: ..." strings; tools are never unregistered.
+import { z } from "zod";
+import { fmtHHMM } from "../ported/schedule-ops.js";
+import type { PlaceCandidate } from "../ported/place-assert.js";
+import { runArrange } from "../store/arrange.js";
+import { computeDaySchedule } from "../store/schedule.js";
+import type { createTripStore } from "../store/store.js";
+import type { ResolveResult } from "../store/nominatim.js";
+import type { TripState } from "../store/types.js";
+import { PLANNING_GUIDE } from "./planningGuide.js";
+import type { RegisterToolOptions } from "./modelContext.js";
+
+export interface ToolDeps {
+  trip: Pick<ReturnType<typeof createTripStore>, "store" | "actions">;
+  matrix: { ensureFresh(): Promise<void> };
+  nominatim: {
+    resolve(query: string, opts?: { deadline?: number }): Promise<ResolveResult>;
+    uncachedCount?(queries: string[]): number;
+  };
+}
+
+// ── formatting helpers ─────────────────────────────────────────────────────
+function resolvedLabel(place: PlaceCandidate): string {
+  const city = place.city;
+  return city && !place.name.toLowerCase().includes(city.toLowerCase())
+    ? `${place.name} (${city})`
+    : place.name;
+}
+
+function endsPhrase(s: TripState, day: number, withNoOverflow = false): string {
+  const sched = computeDaySchedule(s, day);
+  const t = fmtHHMM(sched.endMin);
+  if (sched.overflow) return `D${day} ends ${t} — WARNING: past 22:00`;
+  return `D${day} ends ${t}${withNoOverflow ? ", no overflow" : ""}`;
+}
+
+function lastEditId(s: TripState): string {
+  return s.log[s.log.length - 1]?.editId ?? "?";
+}
+
+const err = (msg: string) => `ERROR: ${msg}`;
+
+function wrap(execute: (args: Record<string, unknown>) => Promise<string> | string) {
+  return async (args: Record<string, unknown>): Promise<string> => {
+    try {
+      return await execute(args ?? {});
+    } catch (e) {
+      return err(`${e instanceof Error ? e.message : String(e)} — the trip is unchanged, try again.`);
+    }
+  };
+}
+
+function zodErr(e: z.ZodError): string {
+  const i = e.issues[0];
+  return err(`invalid ${i.path.join(".") || "arguments"}: ${i.message}`);
+}
+
+// ── tools ──────────────────────────────────────────────────────────────────
+export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
+  const { trip, matrix, nominatim } = deps;
+  const state = () => trip.store.getState();
+
+  const addPlace: RegisterToolOptions = {
+    name: "add_place",
+    description:
+      "Resolve one free-text place name and add it: to a day at the best position by travel time (or a fixed position), or as a candidate when day is omitted. Takes about 1s for an uncached name. Returns the resolved name — check it matches what you meant; if wrong, move it to candidates and retry with a fuller name like 'Ghibli Museum, Mitaka'. The stop lands pending for the human.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Free-text place name; include the city for accuracy." },
+        day: { type: "number", description: "1-based target day; omit to add as a candidate." },
+        position: { type: "number", description: "1-based slot in the day; omit for best insertion by travel time." },
+        dwellMinutes: { type: "number", description: "Minutes at the stop. Default 60." },
+      },
+      required: ["name"],
+    },
+    annotations: { readOnlyHint: false, untrustedContentHint: true },
+    execute: wrap(async (args) => {
+      const p = z
+        .object({
+          name: z.string().min(1),
+          day: z.number().int().optional(),
+          position: z.number().int().min(1).optional(),
+          dwellMinutes: z.number().int().min(0).optional(),
+        })
+        .safeParse(args);
+      if (!p.success) return zodErr(p.error);
+      const s = state();
+      if (p.data.day !== undefined && (p.data.day < 1 || p.data.day > s.days.length)) {
+        return err(`day ${p.data.day} out of range (trip has ${s.days.length}).`);
+      }
+      const r = await nominatim.resolve(p.data.name);
+      if (!r.ok) return err(r.message);
+      const res = trip.actions.addResolvedStop(
+        "agent",
+        { name: r.place.name, lat: r.place.lat!, lon: r.place.lng!, query: p.data.name },
+        { day: p.data.day, position: p.data.position, dwellMin: p.data.dwellMinutes },
+      );
+      await matrix.ensureFresh();
+      const s2 = state();
+      const e = lastEditId(s2);
+      if (res.day === 0) return `Added [${res.sid}] ${resolvedLabel(r.place)} as a candidate [pending ${e}].`;
+      const dwell = p.data.dwellMinutes ?? 60;
+      return `Added [${res.sid}] ${resolvedLabel(r.place)} to D${res.day} pos${res.position}, dwell ${dwell} [pending ${e}]. ${endsPhrase(s2, res.day, true)}.`;
+    }),
+  };
+
+  const moveStop: RegisterToolOptions = {
+    name: "move_stop",
+    description:
+      "Move a stop to another day or position, place a candidate onto a day, or pass day 0 to unassign a stop into candidates (nothing is deleted; candidates keep it recoverable). Omit position for best insertion by travel time. Ids come from get_itinerary. Affected days reschedule immediately; the result reports their new end times and any overflow. Pending until the human accepts or reverts.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        stop: { type: "string", description: "[s#] or [c#] id from get_itinerary." },
+        day: { type: "number", description: "Target day 1..N, or 0 to send it to candidates." },
+        position: { type: "number", description: "1-based slot; omit for best insertion by travel time." },
+      },
+      required: ["stop", "day"],
+    },
+    annotations: { readOnlyHint: false, untrustedContentHint: false },
+    execute: wrap(async (args) => {
+      const p = z
+        .object({ stop: z.string().min(1), day: z.number().int(), position: z.number().int().min(1).optional() })
+        .safeParse(args);
+      if (!p.success) return zodErr(p.error);
+      const r = trip.actions.moveStop("agent", p.data.stop, p.data.day, p.data.position);
+      if ("error" in r) return err(r.error);
+      await matrix.ensureFresh();
+      const s2 = state();
+      const e = lastEditId(s2);
+      if (r.to.day === 0) {
+        return `Unassigned [${p.data.stop}] to candidates as [${r.sid}] [pending ${e}]; ${endsPhrase(s2, r.from.day)}.`;
+      }
+      if (r.from.day === 0) {
+        return `Placed candidate [${p.data.stop}] on D${r.to.day} pos${r.to.index + 1} as [${r.sid}] [pending ${e}]. ${endsPhrase(s2, r.to.day, true)}.`;
+      }
+      const days = r.from.day === r.to.day ? [r.to.day] : [r.from.day, r.to.day];
+      return `Moved [${r.sid}]: D${r.from.day} pos${r.from.index + 1} -> D${r.to.day} pos${r.to.index + 1} [pending ${e}]. ${days.map((d) => endsPhrase(s2, d)).join("; ")}.`;
+    }),
+  };
+
+  const setTimes: RegisterToolOptions = {
+    name: "set_times",
+    description:
+      "Set a day's timing inputs: dayStart (HH:MM) moves when the day leaves its lodging; stop plus dwellMinutes changes minutes spent there; freeMinutesAfter inserts unscheduled time after that stop. The schedule recomputes at once. Use when get_itinerary warns a day overflows past 22:00 — start earlier or trim dwell. Pending until the human accepts.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        day: { type: "number", description: "Day 1..N." },
+        dayStart: { type: "string", description: "New HH:MM 24h start for the day." },
+        stop: { type: "string", description: "[s#] id to retime; required with dwellMinutes or freeMinutesAfter." },
+        dwellMinutes: { type: "number", description: "New minutes spent at the stop." },
+        freeMinutesAfter: { type: "number", description: "Unscheduled minutes after the stop; 0 removes the block." },
+      },
+      required: ["day"],
+    },
+    annotations: { readOnlyHint: false, untrustedContentHint: false },
+    execute: wrap(async (args) => {
+      const p = z
+        .object({
+          day: z.number().int(),
+          dayStart: z.string().optional(),
+          stop: z.string().optional(),
+          dwellMinutes: z.number().int().min(0).optional(),
+          freeMinutesAfter: z.number().int().min(0).optional(),
+        })
+        .safeParse(args);
+      if (!p.success) return zodErr(p.error);
+      if (p.data.dayStart !== undefined && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(p.data.dayStart)) {
+        return err("time must be HH:MM 24h.");
+      }
+      if ((p.data.dwellMinutes !== undefined || p.data.freeMinutesAfter !== undefined) && !p.data.stop) {
+        return err("give dayStart, or stop with dwellMinutes/freeMinutesAfter.");
+      }
+      const r = trip.actions.setTimes("agent", p.data.day, {
+        dayStart: p.data.dayStart,
+        sid: p.data.stop,
+        dwellMin: p.data.dwellMinutes,
+        freeAfterMin: p.data.freeMinutesAfter,
+      });
+      if ("error" in r) return err(r.error);
+      const s2 = state();
+      const e = lastEditId(s2);
+      const parts: string[] = [];
+      if (p.data.dayStart) parts.push(`D${p.data.day} starts ${p.data.dayStart}`);
+      if (r.sid && p.data.dwellMinutes !== undefined) parts.push(`[${r.sid}] dwell ${r.prevDwell} -> ${p.data.dwellMinutes}`);
+      if (r.sid && p.data.freeMinutesAfter !== undefined) parts.push(`free after [${r.sid}] ${r.prevFree} -> ${p.data.freeMinutesAfter} min`);
+      return `${parts.join("; ")} [pending ${e}]. ${endsPhrase(s2, p.data.day)}.`;
+    }),
+  };
+
+  const setLodging: RegisterToolOptions = {
+    name: "set_lodging",
+    description:
+      "Resolve a lodging name and anchor nights to it. Night 0 is where Day 1 starts; night N is where day N ends and day N+1 starts. Omit nights to set every night. Day schedules recompute from their anchors; days with no lodging start at their first stop. Returns the resolved name — verify it matches. Pending until the human accepts.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Lodging name or address; include the city." },
+        nights: { type: "array", items: { type: "number" }, description: "Night numbers to anchor; omit for every night." },
+      },
+      required: ["name"],
+    },
+    annotations: { readOnlyHint: false, untrustedContentHint: true },
+    execute: wrap(async (args) => {
+      const p = z
+        .object({ name: z.string().min(1), nights: z.array(z.number().int()).optional() })
+        .safeParse(args);
+      if (!p.success) return zodErr(p.error);
+      const s = state();
+      const D = s.days.length;
+      if (D === 0) return err("trip has no days yet — plan_trip or add_place first.");
+      for (const n of p.data.nights ?? []) {
+        if (n < 0 || n >= D) return err(`night ${n} out of range (nights 0-${D - 1}).`);
+      }
+      const r = await nominatim.resolve(p.data.name);
+      if (!r.ok) return err(r.message);
+      const res = trip.actions.setLodging(
+        "agent",
+        { name: r.place.name, lat: r.place.lat!, lon: r.place.lng!, query: p.data.name },
+        p.data.nights,
+      );
+      if ("error" in res) return err(res.error);
+      await matrix.ensureFresh();
+      const s2 = state();
+      const e = lastEditId(s2);
+      const all = res.nights.length === D;
+      const nightsLabel = all
+        ? `nights 0-${D - 1}`
+        : `night${res.nights.length > 1 ? "s" : ""} ${res.nights.join(", ")}`;
+      const ends = s2.days.map((_, i) => (i === 0 ? endsPhrase(s2, 1) : `D${i + 1} ${fmtHHMM(computeDaySchedule(s2, i + 1).endMin)}`)).join(", ");
+      return `${resolvedLabel(r.place)} anchored for ${nightsLabel} [pending ${e}].${all ? " All days start/end there." : ""} ${ends}.`;
+    }),
+  };
+
+  const arrangeDays: RegisterToolOptions = {
+    name: "arrange_days",
+    description:
+      "Regroup and reorder every placed stop across days by travel time: stops cluster into days, each day is ordered from its lodging, schedules recompute — exactly what the human's Arrange days button does. Dwell survives; leg-mode choices survive where the stop pair stays adjacent. Candidates untouched. Pass dayCount to grow or shrink the trip. Use after several adds rather than optimising stop by stop. One pending edit, one-click revert.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dayCount: { type: "number", description: "Target number of days 1-7; omit to keep the current count." },
+      },
+    },
+    annotations: { readOnlyHint: false, untrustedContentHint: false },
+    execute: wrap(async (args) => {
+      const p = z.object({ dayCount: z.number().int().min(1).max(7).optional() }).safeParse(args);
+      if (!p.success) return zodErr(p.error);
+      const before = state();
+      const prevCand = before.candidates.length;
+      const r = await runArrange(trip, matrix, "agent", p.data.dayCount);
+      if ("error" in r) return err(r.error);
+      await matrix.ensureFresh();
+      const s2 = state();
+      const e = lastEditId(s2);
+      const dayBits = s2.days
+        .map((d, i) => `D${i + 1} [${d.stops.join(" ")}] ends ${fmtHHMM(computeDaySchedule(s2, i + 1).endMin)}`)
+        .join(". ");
+      const overflowDays = s2.days.map((_, i) => i + 1).filter((d) => computeDaySchedule(s2, d).overflow);
+      const longLegs = s2.days.reduce((n, _, i) => n + computeDaySchedule(s2, i + 1).longLegs.length, 0);
+      const capNote = r.overflow.length ? ` (+${r.overflow.length} over the 5-stop cap moved there)` : "";
+      return (
+        `Arranged ${s2.days.length} day${s2.days.length > 1 ? "s" : ""} [pending ${e}]. ${dayBits}. ` +
+        `Candidates untouched: ${prevCand}${capNote}. ` +
+        `Overflow: ${overflowDays.length ? `day ${overflowDays.join(", ")} past 22:00` : "none"}; ` +
+        `legs over 40m: ${longLegs || "none"}.`
+      );
+    }),
+  };
+
+  const guide: RegisterToolOptions = {
+    name: "get_planning_guide",
+    description:
+      "Read once before planning or filling a trip: typical minutes to spend at different kinds of places, how many stops make a comfortable day, and when to leave free time for meals. Use it to choose dwellMinutes for add_place and set_times and to decide how much to pack into a day. Static text — the live trip comes from get_itinerary.",
+    inputSchema: { type: "object", properties: {} },
+    annotations: { readOnlyHint: true, untrustedContentHint: false },
+    execute: wrap(() => PLANNING_GUIDE),
+  };
+
+  return [addPlace, moveStop, setTimes, setLodging, arrangeDays, guide];
+}

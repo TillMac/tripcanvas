@@ -10,6 +10,7 @@ import { SearchBox } from "./ui/SearchBox.js";
 import { Timeline } from "./ui/Timeline.js";
 import { LodgingControl } from "./ui/LodgingControl.js";
 import { ArrangeButton, CopyButton } from "./ui/HeaderButtons.js";
+import { PendingBar } from "./ui/PendingBar.js";
 import { useTrip } from "./ui/useTrip.js";
 
 function useUndoKey() {
@@ -139,6 +140,8 @@ export default function App({ agentAvailable }: { agentAvailable: boolean }) {
         <CopyButton />
         <NewTripButton />
       </header>
+
+      <PendingBar />
 
       {(warnings.overflowDays.length > 0 || warnings.longLegCount > 0 || warnings.approx) && (
         <div className="border-b border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-800">

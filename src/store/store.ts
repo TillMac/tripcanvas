@@ -471,6 +471,54 @@ export function createTripStore(deps: TripStoreDeps = {}) {
       );
     },
 
+    /** One commit for set_times: dayStart and/or a stop's dwell/free knobs. */
+    setTimes(
+      actor: Actor,
+      day: number,
+      opts: { dayStart?: string; sid?: string; dwellMin?: number; freeAfterMin?: number },
+    ):
+      | { sid?: Sid; prevStart?: string; prevDwell?: number; prevFree?: number }
+      | { error: string } {
+      const s = get();
+      if (day < 1 || day > s.days.length) return { error: `day ${day} out of range (trip has ${s.days.length}).` };
+      const ops: Op[] = [];
+      const inverse: Op[] = [];
+      const parts: string[] = [];
+      const out: { sid?: Sid; prevStart?: string; prevDwell?: number; prevFree?: number } = {};
+      if (opts.dayStart) {
+        out.prevStart = s.days[day - 1].start;
+        ops.push({ t: "setDayStart", day, start: opts.dayStart });
+        inverse.unshift({ t: "setDayStart", day, start: out.prevStart });
+        parts.push(`D${day} starts ${opts.dayStart}`);
+      }
+      let sid: Sid | undefined;
+      if (opts.sid !== undefined) {
+        const r = resolveSid(s, opts.sid);
+        if (!r) return { error: `no stop [${opts.sid}].` };
+        if (!s.days[day - 1].stops.includes(r)) return { error: `[${r}] is not on day ${day}.` };
+        sid = r;
+        out.sid = r;
+        if (opts.dwellMin !== undefined) {
+          out.prevDwell = s.stops[r].dwellMin;
+          ops.push({ t: "setStop", sid: r, patch: { dwellMin: opts.dwellMin } });
+          inverse.unshift({ t: "setStop", sid: r, patch: { dwellMin: out.prevDwell } });
+          parts.push(`[${r}] dwell ${out.prevDwell} -> ${opts.dwellMin}`);
+        }
+        if (opts.freeAfterMin !== undefined) {
+          out.prevFree = s.stops[r].freeAfterMin;
+          ops.push({ t: "setStop", sid: r, patch: { freeAfterMin: opts.freeAfterMin } });
+          inverse.unshift({ t: "setStop", sid: r, patch: { freeAfterMin: out.prevFree } });
+          parts.push(`free after [${r}] ${out.prevFree} -> ${opts.freeAfterMin} min`);
+        }
+      }
+      if (ops.length === 0) return { error: "give dayStart, or stop with dwellMinutes/freeMinutesAfter." };
+      commit(
+        { op: "times", summary: parts.join("; "), ops, inverse, sids: sid ? [sid] : undefined },
+        actor,
+      );
+      return out;
+    },
+
     // ── review (ADR-0004) ──────────────────────────────────────────────────
     accept(editId: Eid): { accepted: Sid[] } | { error: string } {
       const s = get();
