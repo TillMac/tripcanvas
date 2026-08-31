@@ -4,7 +4,7 @@
 // top of this body; the human Copy button uses it directly.
 import { fmtHHMM } from "../ported/schedule-ops.js";
 import { computeDaySchedule, tripWarnings, type LegInfo } from "./schedule.js";
-import { pendingEdits } from "./store.js";
+import { editStatus, pendingEdits } from "./store.js";
 import type { Sid, TripState } from "./types.js";
 
 function legToken(leg: LegInfo, starred: boolean): string {
@@ -111,4 +111,91 @@ export function renderTrip(s: TripState, opts: { day?: number; compact?: boolean
   lines.push(renderCandidates(s));
   lines.push(renderWarnings(s));
   return lines.join("\n");
+}
+
+// ── agent-facing sections (get_itinerary / get_changes, §4) ────────────────
+
+const PAGINATE_OVER_CHARS = 1400;
+const PAGINATE_OVER_DAYS = 4;
+const MAX_CHANGE_LINES = 8;
+
+/** Human-actor log entries after the agent's read cursor, lightly coalesced:
+ *  consecutive moves of the same stop keep only the latest. */
+export function humanChangesSince(s: TripState, sinceRev: number): string[] {
+  const entries = s.log.filter((e) => e.actor === "human" && e.rev > sinceRev);
+  const out: { key: string | null; line: string }[] = [];
+  for (const e of entries) {
+    const key = e.op === "move" && e.sids?.length === 1 ? `move:${e.sids[0]}` : null;
+    if (key) {
+      const prev = out.findIndex((x) => x.key === key);
+      if (prev >= 0) out.splice(prev, 1);
+    }
+    out.push({ key, line: `- ${e.summary}` });
+  }
+  return out.map((x) => x.line);
+}
+
+export function renderHumanChanges(s: TripState): string {
+  const lines = humanChangesSince(s, s.lastAgentReadRev);
+  const head = `HUMAN CHANGES since your last read (rev${s.lastAgentReadRev}):`;
+  if (lines.length === 0) return `${head} none`;
+  const shown = lines.slice(0, MAX_CHANGE_LINES);
+  const more = lines.length - shown.length;
+  return [head, ...shown, ...(more > 0 ? [`(+${more} more — use get_changes)`] : [])].join("\n");
+}
+
+export function renderPendingSection(s: TripState): string {
+  const pend = pendingEdits(s);
+  if (pend.length === 0) return "YOUR PENDING EDITS: none";
+  const bits = pend.map((p) => {
+    const short = p.entry.summary.length > 48 ? p.entry.summary.slice(0, 45) + "…" : p.entry.summary;
+    return `${p.editId} ${short}${p.fate === "partial" ? " (partly accepted)" : ""}`;
+  });
+  return `YOUR PENDING EDITS (${pend.length}): ${bits.join("; ")}`;
+}
+
+/**
+ * The full get_itinerary result: trip body (auto-compacted past 4 days or
+ * ~1,400 chars unless a single day is requested) + the two agent sections,
+ * which are ALWAYS included so a re-read is never empty.
+ */
+export function renderAgentItinerary(s: TripState, day?: number): string {
+  const sections = `${renderHumanChanges(s)}\n${renderPendingSection(s)}`;
+  if (s.days.length === 0 && s.candidates.length === 0) {
+    return `Trip is empty — use plan_trip or add_place.\n${sections}`;
+  }
+  if (day !== undefined) {
+    if (day < 1 || day > s.days.length) {
+      return `ERROR: day ${day} out of range (trip has ${s.days.length}).`;
+    }
+    return `${renderTrip(s, { day })}\n${sections}`;
+  }
+  const full = renderTrip(s);
+  const body =
+    s.days.length > PAGINATE_OVER_DAYS || full.length > PAGINATE_OVER_CHARS
+      ? renderTrip(s, { compact: true })
+      : full;
+  return `${body}\n${sections}`;
+}
+
+/** get_changes: revision-by-revision feed with per-edit fates. */
+export function renderChanges(s: TripState, since: number): string {
+  if (since < s.historyStartRev) {
+    return `History starts at rev ${s.historyStartRev + 1}; full state instead:\n${renderAgentItinerary(s)}`;
+  }
+  const entries = s.log.filter((e) => e.rev > since);
+  const pend = pendingEdits(s);
+  const footer =
+    pend.length === 0
+      ? "Pending now: none"
+      : `Pending now: ${pend.map((p) => `${p.editId} (${p.pendingSids.map((x) => `[${x}]`).join(" ") || "no stops"})`).join(", ")}`;
+  if (entries.length === 0) return `No changes since rev ${since}.\n${footer}`;
+  const lines = entries.map((e) => {
+    if (e.actor === "agent" && e.editId) {
+      const st = editStatus(s, e.editId);
+      return `rev${e.rev} agent ${e.editId}: ${e.summary}${st ? ` [${st.fate}]` : ""}`;
+    }
+    return `rev${e.rev} ${e.actor}: ${e.summary}`;
+  });
+  return [...lines, footer].join("\n");
 }

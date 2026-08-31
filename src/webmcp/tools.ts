@@ -11,6 +11,7 @@ import { computeDaySchedule } from "../store/schedule.js";
 import type { createTripStore } from "../store/store.js";
 import type { ResolveResult } from "../store/nominatim.js";
 import type { TripState } from "../store/types.js";
+import { buildReadTools } from "./readTools.js";
 import { PLANNING_GUIDE } from "./planningGuide.js";
 import type { RegisterToolOptions } from "./modelContext.js";
 
@@ -315,5 +316,5 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
     execute: wrap(() => PLANNING_GUIDE),
   };
 
-  return [planTripTool, addPlace, moveStop, setTimes, setLodging, arrangeDays, guide];
+  return [...buildReadTools(deps), planTripTool, addPlace, moveStop, setTimes, setLodging, arrangeDays, guide];
 }

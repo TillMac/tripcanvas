@@ -705,6 +705,7 @@ export function pendingEdits(s: TripState): EditStatus[] {
   const out: EditStatus[] = [];
   for (const e of s.log) {
     if (e.actor !== "agent" || !e.editId) continue;
+    if (e.op === "revert" || e.op === "accept") continue; // fate events are not reviewable edits
     const st = editStatus(s, e.editId);
     if (st && (st.fate === "pending" || st.fate === "partial")) out.push(st);
   }
