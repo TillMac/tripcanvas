@@ -9,17 +9,30 @@ import type { Actor, TripState } from "./types.js";
 
 const CACHE_PREFIX = "tripcanvas:matrix:";
 export const MATRIX_DEBOUNCE_MS = 500;
+/** Every table request is bounded: a hung router must never hold a tool past Chrome's 30s budget. */
+export const TABLE_TIMEOUT_MS = 6_000;
+/** After a FOSSGIS failure (429/outage) leave it alone for a while instead of hammering its limiter. */
+export const OSRM_BACKOFF_MS = 15_000;
+/** The OSRM demo server has only a driving profile; walk falls back to estimates. */
+const fallbackCarTableUrl = (coords: string) =>
+  `https://router.project-osrm.org/table/v1/driving/${coords}?annotations=duration`;
+const isFossgis = (url: string) => url.startsWith("https://routing.openstreetmap.de/");
 
 export interface MatrixDeps {
   fetchFn?: typeof fetch;
   storage?: Pick<Storage, "getItem" | "setItem">;
   debounceMs?: number;
+  timeoutMs?: number;
 }
 
 export class MatrixService {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private inflight: Promise<void> | null = null;
   private fetchFn: typeof fetch;
+  /** FOSSGIS-only backoff; the fallback router is still tried. */
+  private blockedUntil = 0;
+  /** Hash of the last refresh attempt (success or not) — ensureFresh's re-check key. */
+  private lastAttemptHash = "";
 
   constructor(
     private store: StoreApi<TripState>,
@@ -53,11 +66,13 @@ export class MatrixService {
       this.timer = null;
     }
     const s = this.store.getState();
-    if (placedHash(s) === s.matrices.forHash && !s.matrices.stale) return;
+    const before = placedHash(s);
+    if (before === s.matrices.forHash && !s.matrices.stale) return;
     await (this.inflight ?? this.refresh());
-    // A newer commit may have changed the set while the fetch ran.
-    const s2 = this.store.getState();
-    if (placedHash(s2) !== s2.matrices.forHash) await this.refresh();
+    // A newer commit may have changed the set while the fetch ran. A FAILED
+    // attempt for the current set is not a reason to refetch (that storm is
+    // what blew the 30s budget during the FOSSGIS outage).
+    if (this.lastAttemptHash !== before) await this.refresh();
   }
 
   /** Fetch walk+drive tables for an explicit place set (plan_trip §3 step 4,
@@ -65,20 +80,17 @@ export class MatrixService {
    *  is instant. Returns null on failure (caller falls back to estimates). */
   async fetchTablesFor(
     places: { id: string; lat: number; lon: number }[],
-  ): Promise<{ walk: DurationMatrix; drive: DurationMatrix; ids: string[] } | null> {
+  ): Promise<{ walk?: DurationMatrix; drive?: DurationMatrix; ids: string[] } | null> {
     const ids = places.map((p) => p.id).sort();
     const hash = ids.join(";");
     const byId = new Map(places.map((p) => [p.id, p]));
     const cached = this.cacheGet(hash);
     if (cached) return { ...cached, ids };
     const coords = ids.map((pid) => `${byId.get(pid)!.lon},${byId.get(pid)!.lat}`).join(";");
-    try {
-      const [walk, drive] = await Promise.all([this.fetchTable("foot", coords), this.fetchTable("car", coords)]);
-      this.cacheSet(hash, walk, drive);
-      return { walk, drive, ids };
-    } catch {
-      return null;
-    }
+    const pair = await this.fetchPair(coords);
+    if (!pair) return null;
+    if (pair.walk && pair.drive) this.cacheSet(hash, pair.walk, pair.drive);
+    return { ...pair, ids };
   }
 
   private refresh(): Promise<void> {
@@ -97,6 +109,7 @@ export class MatrixService {
       return;
     }
     const ids = hash.split(";");
+    this.lastAttemptHash = hash;
 
     const cached = this.cacheGet(hash);
     if (cached) {
@@ -105,14 +118,12 @@ export class MatrixService {
     }
 
     const coords = ids.map((pid) => `${s.places[pid].lon},${s.places[pid].lat}`).join(";");
-    try {
-      const [walk, drive] = await Promise.all([
-        this.fetchTable("foot", coords),
-        this.fetchTable("car", coords),
-      ]);
-      this.store.setState({ matrices: { walk, drive, ids, forHash: hash, stale: false } });
-      this.cacheSet(hash, walk, drive);
-    } catch {
+    const pair = await this.fetchPair(coords);
+    if (pair) {
+      // A missing profile (walk) simply falls through to estimates per leg.
+      this.store.setState({ matrices: { ...pair, ids, forHash: hash, stale: false } });
+      if (pair.walk && pair.drive) this.cacheSet(hash, pair.walk, pair.drive);
+    } else {
       // Keep the old matrix (covered pairs still real); schedule falls back to
       // estimates for uncovered pairs; page stays editable (ADR-0001).
       const cur = this.store.getState().matrices;
@@ -120,10 +131,36 @@ export class MatrixService {
     }
   }
 
+  /** Both profiles in parallel; whichever answers is kept. Null when neither did. */
+  private async fetchPair(coords: string): Promise<{ walk?: DurationMatrix; drive?: DurationMatrix } | null> {
+    const [walk, drive] = await Promise.allSettled([this.fetchTable("foot", coords), this.fetchTable("car", coords)]);
+    if (walk.status === "rejected" && drive.status === "rejected") return null;
+    return {
+      ...(walk.status === "fulfilled" ? { walk: walk.value } : {}),
+      ...(drive.status === "fulfilled" ? { drive: drive.value } : {}),
+    };
+  }
+
+  /** FOSSGIS first (foot + car); car alone retries on the OSRM demo. Each attempt is timeout-bounded. */
   private async fetchTable(profile: "foot" | "car", coords: string): Promise<DurationMatrix> {
-    const res = await this.fetchFn(osrmTableUrl(profile, coords));
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return parseOsrmTable(await res.json());
+    const urls = profile === "car" ? [osrmTableUrl("car", coords), fallbackCarTableUrl(coords)] : [osrmTableUrl("foot", coords)];
+    let lastErr: unknown = new Error("router backing off");
+    for (const url of urls) {
+      if (isFossgis(url) && Date.now() < this.blockedUntil) continue;
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), this.deps.timeoutMs ?? TABLE_TIMEOUT_MS);
+      try {
+        const res = await this.fetchFn(url, { signal: ctl.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return parseOsrmTable(await res.json());
+      } catch (e) {
+        lastErr = e;
+        if (isFossgis(url)) this.blockedUntil = Date.now() + OSRM_BACKOFF_MS;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    throw lastErr;
   }
 
   private cacheGet(hash: string): { walk: DurationMatrix; drive: DurationMatrix } | null {

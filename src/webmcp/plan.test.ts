@@ -238,3 +238,35 @@ describe("plan_trip timing under fake timers", () => {
     expect(asked.length).toBe(4); // tables fetched over all resolved places BEFORE grouping
   });
 });
+
+describe("plan_trip — routing service hangs", () => {
+  it("still returns by the 22s deadline with estimated times when OSRM never answers", async () => {
+    vi.useFakeTimers();
+    const t0 = Date.now();
+    const trip = createTripStore();
+    const never = () => new Promise<never>(() => {});
+    const deps: ToolDeps = {
+      trip,
+      matrix: { ensureFresh: never, fetchTablesFor: never },
+      fetchTransit: async () => null,
+      nominatim: {
+        resolve: async (q) => ({
+          ok: true, cached: true,
+          place: { placeId: q, name: q, lat: 35.6 + (q.length % 5) * 0.05, lng: 139.7 },
+        }),
+      },
+    };
+    const tools = Object.fromEntries(buildTools(deps).map((t) => [t.name, t]));
+    let finishedAt = 0;
+    const done = (tools.plan_trip.execute({ places: ["Aa", "Bbb", "Cccc", "Ddddd"], dayCount: 2 }) as Promise<string>).then((r) => {
+      finishedAt = Date.now();
+      return r;
+    });
+    await vi.advanceTimersByTimeAsync(40_000);
+    const out = await done;
+    expect(out).toMatch(/^Planned 2 days, 4 stops/);
+    expect(finishedAt - t0).toBeLessThanOrEqual(23_000);
+    expect(trip.store.getState().days.flatMap((d) => d.stops).length).toBe(4);
+    vi.useRealTimers();
+  });
+});

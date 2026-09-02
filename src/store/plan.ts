@@ -2,7 +2,9 @@
 // execute, atomic commit. Serial resolution through the ONE app-wide queue
 // (3s fetch timeout + one retry inside the queue; 22s wall-clock deadline
 // checked before every request), ephemeral resolving pins during the call,
-// ONE pending ActionGroup at the end. Worst case ~27s < the 30s tool budget.
+// ONE pending ActionGroup at the end. The OSRM phases (tables before grouping,
+// ensureFresh after the commit) share the SAME deadline: a hung router costs
+// real times, never the tool call. Worst case ~23s < the 30s tool budget.
 import { fmtHHMM } from "../ported/schedule-ops.js";
 import type { PlaceCandidate } from "../ported/place-assert.js";
 import { arrangeTrip, orderDayStops } from "./arrange.js";
@@ -30,7 +32,7 @@ export interface PlanDeps {
     ensureFresh(): Promise<void>;
     fetchTablesFor?(
       places: { id: string; lat: number; lon: number }[],
-    ): Promise<{ walk: import("../ported/osrm.js").DurationMatrix; drive: import("../ported/osrm.js").DurationMatrix; ids: string[] } | null>;
+    ): Promise<{ walk?: import("../ported/osrm.js").DurationMatrix; drive?: import("../ported/osrm.js").DurationMatrix; ids: string[] } | null>;
   };
   nominatim: {
     resolve(query: string, opts?: { deadline?: number }): Promise<ResolveResult>;
@@ -40,6 +42,18 @@ export interface PlanDeps {
 }
 
 const err = (msg: string) => `ERROR: ${msg}`;
+
+/** Resolve with `p`, or with `fallback` once `ms` elapse (rejections count as fallback). */
+function bounded<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    const settle = (v: T) => {
+      clearTimeout(timer);
+      resolve(v);
+    };
+    p.then(settle, () => settle(fallback));
+  });
+}
 
 export async function planTrip(deps: PlanDeps, args: PlanArgs): Promise<string> {
   const { trip, nominatim } = deps;
@@ -70,7 +84,9 @@ export async function planTrip(deps: PlanDeps, args: PlanArgs): Promise<string> 
   if (hasTrip && !args.replace) return err(`a trip exists (rev ${s0.rev}) — pass replace:true or edit it instead.`);
 
   // ── 2-3. resolve serially with the wall-clock deadline; pins drop live ───
-  const deadline = (deps.now?.() ?? Date.now()) + PLAN_DEADLINE_MS;
+  const now = deps.now ?? Date.now;
+  const deadline = now() + PLAN_DEADLINE_MS;
+  const remaining = () => Math.max(0, deadline - now());
   const resolved = new Map<string, { place: PlaceCandidate; cached: boolean }>();
   const unresolved: string[] = [];
   let lodgingPlace: PlaceCandidate | null = null;
@@ -131,9 +147,13 @@ export async function planTrip(deps: PlanDeps, args: PlanArgs): Promise<string> 
     // §3 step 4: two OSRM /table calls in parallel over all resolved places +
     // lodging, awaited inline — grouping and ordering run on REAL travel
     // times. Failure falls back to haversine estimates (never fatal).
-    const tables = (await deps.matrix.fetchTablesFor?.(
-      Object.values(places).map((pl) => ({ id: pl.id, lat: pl.lat, lon: pl.lon })),
-    )) ?? null;
+    const tables = deps.matrix.fetchTablesFor && remaining() > 0
+      ? await bounded(
+          deps.matrix.fetchTablesFor(Object.values(places).map((pl) => ({ id: pl.id, lat: pl.lat, lon: pl.lon }))),
+          remaining(),
+          null,
+        )
+      : null;
     let days: DayRec[];
     let capOverflow: Sid[] = [];
     const synthetic: TripState = { ...initialTrip(), places, stops, nights };
@@ -168,7 +188,7 @@ export async function planTrip(deps: PlanDeps, args: PlanArgs): Promise<string> 
     trip.actions.setResolvingPins([]);
   }
 
-  await deps.matrix.ensureFresh();
+  if (remaining() > 0) await bounded(deps.matrix.ensureFresh(), remaining(), undefined);
 
   // ── 7. result summary ────────────────────────────────────────────────────
   const s2 = trip.store.getState();

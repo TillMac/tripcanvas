@@ -23,7 +23,7 @@ export interface ToolDeps {
     /** plan_trip's inline pre-grouping tables (§3 step 4); optional in fakes. */
     fetchTablesFor?(
       places: { id: string; lat: number; lon: number }[],
-    ): Promise<{ walk: import("../ported/osrm.js").DurationMatrix; drive: import("../ported/osrm.js").DurationMatrix; ids: string[] } | null>;
+    ): Promise<{ walk?: import("../ported/osrm.js").DurationMatrix; drive?: import("../ported/osrm.js").DurationMatrix; ids: string[] } | null>;
   };
   nominatim: {
     resolve(query: string, opts?: { deadline?: number }): Promise<ResolveResult>;
