@@ -31,6 +31,29 @@ expected output; any deviation is a release blocker.
    must render the manual-planner banner and stay fully usable.
 8. **Console** — zero errors on load and after steps 4–6.
 
+## Scripted variant (what steps 4–6 look like from the console)
+
+`getTools()` returns a **Promise**; Chrome's `executeTool` takes the args as a
+JSON **string**. Verified live 2026-09-03 (bundle after `f4cd73f`):
+
+```js
+const mc = document.modelContext;
+const tools = await mc.getTools();                       // 11 tools
+const T = (n) => tools.find((t) => t.name === n);
+await mc.executeTool(T("get_itinerary"), "{}");
+await mc.executeTool(T("plan_trip"), JSON.stringify({ dayCount: 2, replace: true,
+  places: ["Senso-ji", "Tokyo Skytree", "Meiji Jingu", "Shibuya Crossing"] }));
+await mc.executeTool(T("move_stop"), JSON.stringify({ stop: "s2", day: 2 }));
+await mc.executeTool(T("set_leg_mode"), JSON.stringify({ day: 1, fromStop: "s1", mode: "transit" }));
+await mc.executeTool(T("get_changes"), "{}");
+await mc.executeTool(T("revert_pending"), JSON.stringify({ edits: ["e2"] }));
+```
+
+Timing to expect for a cold 8-name `plan_trip`: ~14s foreground; ~23s when
+the tab is **hidden** (Chrome aligns timers to 1s in background tabs, so the
+1.1s Nominatim spacing becomes 2s and every timeout runs ~1s late — the 22s
+deadline still holds). Anything over 25s is a regression.
+
 ## Header checks (curl)
 
 ```bash
