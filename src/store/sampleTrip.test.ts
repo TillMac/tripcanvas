@@ -26,7 +26,8 @@ describe("loadSampleTrip", () => {
     const r = t.actions.revert("human", "e1");
     expect("reverted" in r && r.reverted).toEqual(["s8"]);
     expect(t.store.getState().stops.s8).toBeUndefined();
-    // undo unwinds back to the empty canvas
+    // undo unwinds back to the empty canvas (revert commit, example edit, load)
+    t.actions.undo();
     t.actions.undo();
     t.actions.undo();
     expect(t.store.getState().days).toHaveLength(0);
