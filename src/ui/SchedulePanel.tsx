@@ -125,10 +125,10 @@ function StopRow({
         <span className="truncate text-[13px] font-medium text-slate-900">{name}</span>
         {pending && (
           <span
-            title={`pending edit ${pending}`}
-            className="ml-1 shrink-0 rounded border border-amber-500 bg-amber-300 px-1.5 py-0.5 text-[11px] font-semibold text-amber-950"
+            title={`pending agent edit ${pending} — edit to accept, or use the bar above`}
+            className="ml-1 shrink-0 rounded border border-amber-500 bg-amber-300 px-1 py-0.5 text-[11px] font-semibold text-amber-950"
           >
-            {"\u{1F916}"} agent
+            {"\u{1F916}"}
           </span>
         )}
       </span>
