@@ -47,20 +47,20 @@ export function SearchBox({ activeDay }: { activeDay: number }) {
       <input
         type="search"
         aria-label="search a place"
-        placeholder="Add a place — type a name, press Enter (e.g. 'Ghibli Museum, Mitaka')"
+        placeholder="Add a place — press Enter"
         value={q}
         onChange={(e) => setQ(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") void search();
         }}
-        className="w-full max-w-md rounded border border-slate-300 bg-white px-2 py-1 text-sm"
+        className="h-8 w-full max-w-md rounded-full border border-transparent bg-slate-100 px-3.5 text-sm placeholder:text-slate-400 focus:border-teal-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-600/20"
         disabled={busy}
       />
       <select
         aria-label="where the result lands"
         value={target}
         onChange={(e) => setTarget(e.target.value)}
-        className="rounded border border-slate-300 bg-white px-1 py-1 text-xs text-slate-700"
+        className="cursor-pointer appearance-none rounded-md border-0 bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-600/30"
       >
         <option value="active">→ current day</option>
         {Array.from({ length: dayCount }, (_, i) => i + 1).map((d) => (

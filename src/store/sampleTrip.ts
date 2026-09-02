@@ -49,4 +49,26 @@ export function loadSampleTrip(trip: Pick<ReturnType<typeof createTripStore>, "s
     },
     "loaded the sample Tokyo trip",
   );
+  // One clearly-labelled EXAMPLE pending edit so a visitor with no agent still
+  // sees the review loop (amber row, pulsing pin, per-edit Revert). The label
+  // makes it honest: no real agent made it.
+  const s = trip.store.getState();
+  trip.store.setState({
+    rev: s.rev + 1,
+    nextE: 2,
+    stops: { ...s.stops, s8: { ...s.stops.s8, pending: "e1" } },
+    log: [
+      ...s.log,
+      {
+        rev: s.rev + 1,
+        actor: "agent",
+        op: "add",
+        summary: "example: added [s8] Shinjuku Gyoen to D2 pos4 — press Revert to see review",
+        ops: [],
+        inverse: [{ t: "removeFromDay", sid: "s8" }, { t: "delStop", sid: "s8" }],
+        editId: "e1",
+        sids: ["s8"],
+      },
+    ],
+  });
 }

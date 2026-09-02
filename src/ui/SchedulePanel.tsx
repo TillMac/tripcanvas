@@ -57,8 +57,8 @@ export async function cycleLegMode(
 function LegLine({ leg, onCycle }: { leg: LegInfo; onCycle: () => void }) {
   const icon = MODE_ICON[leg.mode];
   return (
-    <div className="flex items-center gap-2 py-1 pl-3 text-[11px] text-slate-500">
-      <span className="text-slate-300">┊</span>
+    <div className="flex items-center gap-2 py-1 text-[11px] text-slate-500">
+      <span aria-hidden className="ml-[42px] h-4 w-0 shrink-0 border-l-2 border-dotted border-slate-300"></span>
       <button
         type="button"
         aria-label="cycle leg mode"
@@ -80,10 +80,10 @@ function LegLine({ leg, onCycle }: { leg: LegInfo; onCycle: () => void }) {
 function TransitSteps({ leg }: { leg: LegInfo }) {
   if (!leg.transit || leg.transit.steps.length === 0) return null;
   return (
-    <div className="ml-8 flex flex-col gap-0.5 pb-1 text-[11px] text-slate-500">
+    <div className="ml-[54px] flex flex-col gap-0.5 pb-1 text-[11px] text-slate-600">
       {leg.transit.steps.map((step, i) =>
         step.mode === "walk" ? (
-          <div key={i} className="text-slate-400">{"\u{1F6B6}"} walk {step.durationMin} min → {step.toName}</div>
+          <div key={i} className="text-slate-500">{"\u{1F6B6}"} walk {step.durationMin} min → {step.toName}</div>
         ) : (
           <div key={i} className="flex items-center gap-1">
             <span style={{ background: step.color ? `#${step.color}` : "#94a3b8", color: "#fff", borderRadius: 4, padding: "0 6px" }}>
@@ -111,17 +111,24 @@ function StopRow({
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       onClick={() => onSelect(sid)}
-      className={`flex items-center justify-between rounded border px-2 py-1.5 text-xs text-slate-800 ${
-        pending ? "border-amber-400 bg-amber-50" : selected ? "border-orange-400 bg-slate-50" : "border-slate-200 bg-slate-50"
+      className={`flex items-center justify-between rounded-lg border px-3 py-2 text-xs text-slate-800 ${
+        pending
+          ? "border-amber-400 border-l-4 border-l-amber-500 bg-amber-100"
+          : selected
+            ? "border-slate-900/40 bg-white shadow-md ring-1 ring-slate-900/15"
+            : "border-slate-200 bg-white shadow-sm"
       }`}
     >
-      <span {...attributes} {...listeners} className="flex-1 cursor-grab">
-        <span className="mr-2 w-14 shrink-0 font-bold tabular-nums text-blue-600">{arrive}–{depart}</span>
-        <span className="mr-1 text-slate-400">[{sid}]</span>
-        {name}
+      <span {...attributes} {...listeners} className="flex min-w-0 flex-1 items-baseline gap-2 cursor-grab">
+        <span className="w-[86px] shrink-0 text-[11px] font-semibold tabular-nums text-slate-500">{arrive}–{depart}</span>
+        <span className="shrink-0 font-mono text-[10px] text-slate-400">[{sid}]</span>
+        <span className="truncate text-[13px] font-medium text-slate-900">{name}</span>
         {pending && (
-          <span className="ml-1 rounded bg-amber-200 px-1 py-0.5 text-[10px] font-semibold text-amber-900">
-            agent · {pending}
+          <span
+            title={`pending edit ${pending}`}
+            className="ml-1 shrink-0 rounded border border-amber-500 bg-amber-300 px-1.5 py-0.5 text-[11px] font-semibold text-amber-950"
+          >
+            {"\u{1F916}"} agent
           </span>
         )}
       </span>
@@ -130,7 +137,7 @@ function StopRow({
           aria-label={`${name} dwell minutes`}
           value={dwellMin}
           onChange={(e) => actions.setDwell("human", sid, parseInt(e.target.value, 10))}
-          className="rounded border border-slate-300 bg-white px-1 py-0.5 text-[10px] text-slate-700"
+          className="cursor-pointer appearance-none rounded-md border-0 bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-600/30"
         >
           {!DWELL_OPTIONS.includes(dwellMin) && <option value={dwellMin}>{dwellMin} min</option>}
           {DWELL_OPTIONS.map((m) => (
@@ -145,7 +152,7 @@ function StopRow({
               const d = parseInt(e.target.value, 10);
               if (!isNaN(d)) actions.moveStop("human", sid, d);
             }}
-            className="rounded border border-slate-300 bg-white px-1 py-0.5 text-[10px] text-slate-600"
+            className="cursor-pointer appearance-none rounded-md border-0 bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-600/30"
           >
             <option value="" disabled>move…</option>
             {otherDays.map((d) => (
@@ -173,21 +180,21 @@ function FreeRow({ label, start, minutes, onChange, onRemove }: {
   onChange: (min: number) => void; onRemove: () => void;
 }) {
   return (
-    <div className="my-0.5 flex items-center gap-2 rounded border border-dashed border-yellow-400 bg-yellow-50 px-2 py-1 text-xs text-yellow-800">
-      <span className="w-14 shrink-0 font-bold tabular-nums text-yellow-700">{start}</span>
+    <div className="my-1 flex items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-1.5 text-xs text-slate-500">
+      <span className="w-[86px] shrink-0 font-semibold tabular-nums text-slate-400">{start}</span>
       <span className="flex-1 font-medium">{label}</span>
       <select
         aria-label="free time minutes"
         value={minutes}
         onChange={(e) => onChange(parseInt(e.target.value, 10))}
-        className="rounded border border-yellow-300 bg-white px-1 py-0.5 text-[10px]"
+        className="cursor-pointer appearance-none rounded-md border-0 bg-slate-200/70 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-600/30"
       >
         {!FREE_OPTIONS.includes(minutes) && <option value={minutes}>{minutes} min</option>}
         {FREE_OPTIONS.map((m) => (
           <option key={m} value={m}>{m} min</option>
         ))}
       </select>
-      <button type="button" aria-label="remove free time" onClick={onRemove} className="h-4 w-4 rounded-full text-yellow-600 hover:bg-yellow-200">✕</button>
+      <button type="button" aria-label="remove free time" onClick={onRemove} className="h-4 w-4 rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-600">✕</button>
     </div>
   );
 }
@@ -267,7 +274,7 @@ export function SchedulePanel({
   const ids = d.stops;
 
   return (
-    <div ref={setDropRef} className={`flex-1 overflow-y-auto p-2 ${isOver ? "bg-blue-50/50" : ""}`}>
+    <div ref={setDropRef} className={`flex-1 overflow-y-auto p-3 ${isOver ? "bg-teal-50/70" : "bg-slate-50"}`}>
       <div className="flex items-center gap-2 px-2 py-1 text-xs text-slate-700">
         {"\u{1F6A9}"} start
         <input
@@ -287,7 +294,7 @@ export function SchedulePanel({
             type="button"
             aria-label="add free time at day start"
             onClick={() => actions.setDayFreeStart("human", day, 30)}
-            className="rounded border border-dashed border-slate-300 px-1.5 text-[10px] text-slate-400 hover:border-yellow-400 hover:text-yellow-600"
+            className="rounded border border-dashed border-slate-300 px-1.5 text-[10px] text-slate-400 hover:border-slate-400 hover:text-slate-500"
           >
             + free time
           </button>
@@ -352,7 +359,7 @@ export function SchedulePanel({
                     type="button"
                     aria-label={`insert free time after ${place.name}`}
                     onClick={() => actions.setFreeAfter("human", st.sid, 30)}
-                    className="my-0.5 flex w-full items-center justify-center gap-1 rounded border border-dashed border-slate-200 py-0.5 text-[10px] text-slate-300 hover:border-yellow-400 hover:text-yellow-600"
+                    className="my-0.5 flex w-full items-center justify-center gap-1 rounded border border-dashed border-slate-200 py-0.5 text-[10px] text-slate-300 hover:border-slate-400 hover:text-slate-500"
                   >
                     + free time
                   </button>
@@ -364,8 +371,8 @@ export function SchedulePanel({
       </DndContext>
 
       {sched.backLeg && (
-        <div className="flex items-center gap-2 py-1 pl-3 text-[11px] text-slate-500">
-          <span className="text-slate-300">┊</span>
+        <div className="flex items-center gap-2 py-1 text-[11px] text-slate-500">
+          <span aria-hidden className="ml-[42px] h-4 w-0 shrink-0 border-l-2 border-dotted border-slate-300"></span>
           <span>
             back to lodging {MODE_ICON[sched.backLeg.mode]}{" "}
             {sched.backLeg.approx ? "≈" : ""}{sched.backLeg.minutes} min
@@ -375,7 +382,7 @@ export function SchedulePanel({
 
       {legStatus && <div className="px-2 py-1 text-xs text-amber-700">{legStatus}</div>}
 
-      <div className={`px-2 py-1 text-xs ${sched.overflow ? "font-semibold text-red-600" : "text-slate-500"}`}>
+      <div className={`px-2 py-1.5 text-xs font-semibold ${sched.overflow ? "text-red-600" : "text-slate-700"}`}>
         ends {fmtHHMM(sched.endMin)}{sched.overflow ? " — past 22:00" : ""}{sched.approx ? " · ≈ times approximate" : ""}
       </div>
 

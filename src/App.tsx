@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { DndContext, pointerWithin } from "@dnd-kit/core";
-import { actions } from "./store/index.js";
+import { actions, trip } from "./store/index.js";
+import { loadSampleTrip } from "./store/sampleTrip.js";
 import { tripWarnings } from "./store/schedule.js";
 import { computeDaySchedule } from "./store/schedule.js";
 import { CandidateDrawer } from "./ui/CandidateDrawer.js";
@@ -12,6 +13,8 @@ import { LodgingControl } from "./ui/LodgingControl.js";
 import { ArrangeButton, CopyButton } from "./ui/HeaderButtons.js";
 import { PendingBar } from "./ui/PendingBar.js";
 import { useTrip } from "./ui/useTrip.js";
+
+const SAMPLE_PROMPT = "Plan 3 days in Tokyo: temples, museums, Shibuya and teamLab — stay near Shinjuku.";
 
 function useUndoKey() {
   useEffect(() => {
@@ -34,7 +37,7 @@ function NewTripButton() {
     return (
       <button
         type="button"
-        className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:border-slate-400"
+        className="rounded-md px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
         onClick={() => setArming(true)}
       >
         New trip
@@ -43,10 +46,10 @@ function NewTripButton() {
   }
   return (
     <span className="flex items-center gap-1 text-xs">
-      <span className="text-red-600">Clear the whole trip?</span>
+      <span className="font-medium text-red-600">Clear the whole trip?</span>
       <button
         type="button"
-        className="rounded bg-red-600 px-2 py-1 text-white"
+        className="rounded-md bg-red-600 px-2 py-1 font-medium text-white"
         onClick={() => {
           actions.newTrip();
           setArming(false);
@@ -54,10 +57,47 @@ function NewTripButton() {
       >
         Yes, clear
       </button>
-      <button type="button" className="rounded border border-slate-300 px-2 py-1" onClick={() => setArming(false)}>
+      <button type="button" className="rounded-md border border-slate-300 px-2 py-1" onClick={() => setArming(false)}>
         Keep
       </button>
     </span>
+  );
+}
+
+function EmptyState({ agentAvailable }: { agentAvailable: boolean }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+      <div className="text-3xl">{"\u{1F5FA}\u{FE0F}"}</div>
+      <p className="text-base font-semibold text-slate-800">Plan a trip with your browser agent</p>
+      <p className="max-w-[260px] text-xs leading-relaxed text-slate-500">
+        The agent edits this itinerary through 11 WebMCP tools — every change lands here, marked for
+        your review. Or search a place above and press Enter.
+      </p>
+      {agentAvailable && (
+        <button
+          type="button"
+          title="Copy this prompt for your agent"
+          className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-[11px] text-slate-600 hover:border-teal-600 hover:text-slate-800"
+          onClick={() => {
+            void navigator.clipboard?.writeText(SAMPLE_PROMPT).then(() => {
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            });
+          }}
+        >
+          {copied ? "Copied ✓ — now ask your agent" : `“${SAMPLE_PROMPT}” ⧉`}
+        </button>
+      )}
+      <button
+        type="button"
+        className="rounded-full bg-teal-700 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-teal-800"
+        onClick={() => loadSampleTrip(trip)}
+      >
+        Load a sample 3-day Tokyo trip
+      </button>
+      <p className="text-[10px] text-slate-400">One click, no account — undo anytime.</p>
+    </div>
   );
 }
 
@@ -120,19 +160,26 @@ export default function App({ agentAvailable }: { agentAvailable: boolean }) {
     <div className="flex h-screen flex-col bg-white text-slate-900">
       {!agentAvailable && (
         <div className="bg-amber-100 px-4 py-1.5 text-xs text-amber-900">
-          Your browser has no WebMCP agent — tripcanvas works as a manual planner. In Chrome 149+, enable
-          chrome://flags/#enable-webmcp-testing to let a browser agent co-edit this trip.
+          tripcanvas is built for browser agents (WebMCP) — none detected, so you're in manual mode.
+          Try the sample trip, or enable chrome://flags/#enable-webmcp-testing in Chrome 149+.
         </div>
       )}
-      <header className="flex items-center gap-3 border-b border-slate-200 px-3 py-2">
-        <h1 className="text-lg font-semibold">tripcanvas</h1>
+      <header className="flex items-center gap-2 border-b border-slate-200 px-4 py-2.5">
+        <h1 className="text-[17px] font-bold tracking-tight">
+          trip<span className="text-teal-700">canvas</span>
+        </h1>
+        {agentAvailable && (
+          <span className="flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+            ● agent connected · 11 WebMCP tools
+          </span>
+        )}
         <SearchBox activeDay={day} />
         <LodgingControl />
         <button
           type="button"
-          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:border-slate-400"
+          className="rounded-md px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
           onClick={() => actions.undo()}
-          title="Undo (Ctrl+Z) — one history for you and the agent"
+          title="Undo (Ctrl+Z) — one shared history for you and the agent"
         >
           ↶ Undo
         </button>
@@ -144,9 +191,13 @@ export default function App({ agentAvailable }: { agentAvailable: boolean }) {
       <PendingBar />
 
       {(warnings.overflowDays.length > 0 || warnings.longLegCount > 0 || warnings.approx) && (
-        <div className="border-b border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-800">
-          {warnings.overflowDays.length > 0 && <span className="mr-3">⚠ Day {warnings.overflowDays.join(", ")} ends past 22:00</span>}
-          {warnings.longLegCount > 0 && <span className="mr-3">⚠ {warnings.longLegCount} leg{warnings.longLegCount > 1 ? "s" : ""} over 40 min</span>}
+        <div className="border-b border-slate-200 bg-white px-4 py-1.5 text-[11px] text-slate-600">
+          {warnings.overflowDays.length > 0 && (
+            <span className="mr-3"><span className="text-amber-600">⚠</span> Day {warnings.overflowDays.join(", ")} ends past 22:00</span>
+          )}
+          {warnings.longLegCount > 0 && (
+            <span className="mr-3"><span className="text-amber-600">⚠</span> {warnings.longLegCount} leg{warnings.longLegCount > 1 ? "s" : ""} over 40 min</span>
+          )}
           {warnings.approx && <span>≈ some times approximate — routing service unavailable or refreshing</span>}
         </div>
       )}
@@ -177,17 +228,11 @@ export default function App({ agentAvailable }: { agentAvailable: boolean }) {
               onAddDay={() => actions.ensureDays("human", dayCount + 1)}
             />
             {empty ? (
-              <div className="flex flex-1 items-center justify-center p-6">
-                <p className="rounded border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">
-                  Try: ask your agent to plan 3 days in Tokyo.
-                  <br />
-                  <span className="text-xs">…or search a place above and press Enter.</span>
-                </p>
-              </div>
+              <EmptyState agentAvailable={agentAvailable} />
             ) : (
               <SchedulePanel day={day} selectedId={selectedId} onSelect={setSelectedId} />
             )}
-            <CandidateDrawer activeDay={day} />
+            {!empty && <CandidateDrawer activeDay={day} />}
           </div>
         </div>
       </DndContext>

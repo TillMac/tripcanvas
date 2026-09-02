@@ -16,11 +16,11 @@ function CandidateChip({ sid, name, dayCount, activeDay, pending }: {
       {...attributes}
       {...listeners}
       style={transform ? { transform: `translate(${transform.x}px, ${transform.y}px)` } : undefined}
-      className={`flex cursor-grab items-center gap-1.5 rounded-full border px-3 py-1 text-xs ${
-        pending ? "border-amber-400 bg-amber-100" : "border-blue-200 bg-blue-50"
+      className={`flex cursor-grab items-center gap-1.5 rounded-full border bg-white px-3 py-1.5 text-xs shadow-sm ${
+        pending ? "border-amber-400 bg-amber-50" : "border-slate-300 hover:border-teal-600"
       }`}
     >
-      <span className="text-slate-500">[{sid}]</span>
+      <span className="font-mono text-[10px] text-slate-400">[{sid}]</span>
       <span className="text-slate-700">{name}</span>
       {dayCount > 0 && (
         <>
@@ -29,7 +29,7 @@ function CandidateChip({ sid, name, dayCount, activeDay, pending }: {
             value={day}
             onChange={(e) => setDay(Number(e.target.value))}
             onClick={(e) => e.stopPropagation()}
-            className="rounded border border-blue-200 bg-white px-1 py-0.5 text-xs text-slate-700"
+            className="cursor-pointer appearance-none rounded-md border-0 bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-600/30"
           >
             {Array.from({ length: dayCount }, (_, i) => i + 1).map((d) => (
               <option key={d} value={d}>Day {d}</option>
@@ -42,7 +42,7 @@ function CandidateChip({ sid, name, dayCount, activeDay, pending }: {
               e.stopPropagation();
               actions.moveStop("human", sid, day);
             }}
-            className="ml-1 rounded-full bg-blue-600 px-2 py-0.5 text-white hover:bg-blue-700"
+            className="ml-1 rounded-full bg-teal-700 px-2 py-0.5 text-white hover:bg-teal-800"
           >
             +
           </button>
@@ -60,7 +60,7 @@ export function CandidateDrawer({ activeDay }: { activeDay: number }) {
   return (
     <div className="w-full border-t border-slate-200 bg-white">
       <div className="flex items-center justify-between px-3 py-2">
-        <span className="text-sm font-semibold text-slate-700">Candidates</span>
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Candidates</span>
         <span className="text-[11px] text-slate-400">drag onto the day, or pick a day and +</span>
       </div>
       <div className="flex flex-wrap gap-2 px-3 pb-3">

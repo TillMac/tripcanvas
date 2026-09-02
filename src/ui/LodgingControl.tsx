@@ -34,7 +34,7 @@ export function LodgingControl() {
     return (
       <button
         type="button"
-        className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:border-slate-400"
+        className="rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-400"
         onClick={() => setEditing(true)}
         title="Lodging anchors where each day starts and ends"
       >
@@ -55,7 +55,7 @@ export function LodgingControl() {
           if (e.key === "Enter") void submit();
           if (e.key === "Escape") setEditing(false);
         }}
-        className="w-56 rounded border border-slate-300 bg-white px-2 py-1 text-xs"
+        className="w-56 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-600/20"
       />
       {status && <span className="max-w-[16rem] truncate text-[11px] text-slate-500">{status}</span>}
     </span>

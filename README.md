@@ -10,7 +10,7 @@ WebMCP tools** that mutate the exact same store. Agent edits land immediately
 but **pending** — highlighted on the map with per-edit revert and accept-all —
 and the agent can read back what the human changed since it last looked.
 
-**Live site:** *(deployed on Vercel — see Deploy below)*
+**Live site:** https://tripcanvas.tillmac.com
 
 ## Why this use case fits WebMCP
 

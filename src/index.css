@@ -1,3 +1,16 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Agent-pending pins pulse — motion survives video compression. */
+@keyframes tc-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
+  70% { box-shadow: 0 0 0 14px rgba(245, 158, 11, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+}
+.tc-pulse > div { animation: tc-pulse 1.6s ease-out infinite; }
+
+/* PendingBar slides in when an agent edit lands. */
+@keyframes tc-slide {
+  from { transform: translateY(-100%); opacity: 0; }
+}

@@ -30,12 +30,12 @@ export interface MapLeg {
 }
 
 function pinHtml(inner: string, bg: string, extra = ""): string {
-  return `<div style="width:28px;height:28px;background:${bg};color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;font-family:sans-serif;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);${extra}">${inner}</div>`;
+  return `<div style="width:28px;height:28px;background:${bg};color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;font-family:sans-serif;border:2px solid #fff;box-shadow:0 1px 3px rgba(15,23,42,.35);${extra}">${inner}</div>`;
 }
 
 function iconFor(m: MapMarker): L.DivIcon {
-  const ring = m.pending ? "box-shadow:0 0 0 4px rgba(245,158,11,.5),0 1px 4px rgba(0,0,0,.4);" : "";
-  const sel = m.selected ? "box-shadow:0 0 0 4px rgba(226,96,63,.4),0 1px 4px rgba(0,0,0,.4);" : "";
+  const ring = ""; // pending pins pulse via the tc-pulse class instead of a static ring
+  const sel = m.selected ? "box-shadow:0 0 0 4px rgba(15,23,42,.35),0 1px 3px rgba(15,23,42,.35);" : "";
   if (m.kind === "lodging") {
     return L.divIcon({
       className: "",
@@ -54,15 +54,15 @@ function iconFor(m: MapMarker): L.DivIcon {
   }
   if (m.kind === "resolving") {
     return L.divIcon({
-      className: "",
-      html: `<div style="width:22px;height:22px;background:#e2e8f0;border:2px dashed #64748b;border-radius:50%;opacity:.85;"></div>`,
-      iconSize: [22, 22],
-      iconAnchor: [11, 11],
+      className: "tc-pulse",
+      html: `<div style="width:28px;height:28px;background:#fef3c7;border:2px dashed #f59e0b;border-radius:50%;"></div>`,
+      iconSize: [28, 28],
+      iconAnchor: [14, 14],
     });
   }
-  const bg = m.selected ? "#e2603f" : m.pending ? "#f59e0b" : "#2563eb";
+  const bg = m.selected ? "#0f172a" : m.pending ? "#f59e0b" : "#0f766e";
   return L.divIcon({
-    className: "",
+    className: m.pending ? "tc-pulse" : "",
     html: pinHtml(String(m.order ?? ""), bg, m.selected ? sel : ring),
     iconSize: [28, 28],
     iconAnchor: [14, 14],
@@ -133,7 +133,7 @@ export function MapPane({
           weight: 3, opacity: 0.8, dashArray: "6 8",
         }).addTo(layer);
       } else {
-        L.polyline([leg.from, leg.to], { color: "#2563eb", weight: 3, opacity: 0.8 }).addTo(layer);
+        L.polyline([leg.from, leg.to], { color: "#0f766e", weight: 3, opacity: 0.8 }).addTo(layer);
       }
     }
 
@@ -150,8 +150,8 @@ export function MapPane({
   return (
     <div className="relative h-full w-full" style={{ minHeight: 300 }}>
       <div ref={elRef} className="h-full w-full" style={{ minHeight: 300 }} />
-      <div className="pointer-events-none absolute bottom-2 left-2 z-[1000] rounded border border-slate-200 bg-white/90 px-2 py-1 text-[11px] leading-relaxed text-slate-600">
-        <span className="text-blue-600">━</span> drive&ensp;
+      <div className="pointer-events-none absolute bottom-2 left-2 z-[1000] rounded-md border border-slate-200 bg-white/95 px-2.5 py-1.5 text-[11px] font-medium leading-relaxed text-slate-600 shadow-sm">
+        <span className="text-teal-700">━</span> drive&ensp;
         <span className="text-indigo-500">━</span> transit&ensp;
         <span className="text-slate-400">┈</span> walk
       </div>

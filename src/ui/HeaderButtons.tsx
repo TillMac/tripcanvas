@@ -12,7 +12,7 @@ export function ArrangeButton() {
         type="button"
         disabled={busy}
         title="Recluster and reorder the whole trip by travel time"
-        className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:border-slate-400 disabled:opacity-50"
+        className="rounded-md px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50"
         onClick={() => {
           setBusy(true);
           setStatus("arranging…");
@@ -35,7 +35,7 @@ export function CopyButton() {
     <button
       type="button"
       title="Copy the whole itinerary as readable text"
-      className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:border-slate-400"
+      className="rounded-md px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
       onClick={() => {
         const text = renderTrip(tripStore.getState());
         void navigator.clipboard?.writeText(text).then(() => {
