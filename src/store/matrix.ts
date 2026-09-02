@@ -33,6 +33,9 @@ export class MatrixService {
   private blockedUntil = 0;
   /** Hash of the last refresh attempt (success or not) — ensureFresh's re-check key. */
   private lastAttemptHash = "";
+  /** One pair fetch per coordinate set: plan_trip's inline table fetch and the
+   *  commit-triggered refresh share it instead of racing FOSSGIS into a 429. */
+  private pairInflight = new Map<string, Promise<{ walk?: DurationMatrix; drive?: DurationMatrix } | null>>();
 
   constructor(
     private store: StoreApi<TripState>,
@@ -131,8 +134,16 @@ export class MatrixService {
     }
   }
 
+  private fetchPair(coords: string): Promise<{ walk?: DurationMatrix; drive?: DurationMatrix } | null> {
+    const hit = this.pairInflight.get(coords);
+    if (hit) return hit;
+    const p = this.doFetchPair(coords).finally(() => this.pairInflight.delete(coords));
+    this.pairInflight.set(coords, p);
+    return p;
+  }
+
   /** Both profiles in parallel; whichever answers is kept. Null when neither did. */
-  private async fetchPair(coords: string): Promise<{ walk?: DurationMatrix; drive?: DurationMatrix } | null> {
+  private async doFetchPair(coords: string): Promise<{ walk?: DurationMatrix; drive?: DurationMatrix } | null> {
     const [walk, drive] = await Promise.allSettled([this.fetchTable("foot", coords), this.fetchTable("car", coords)]);
     if (walk.status === "rejected" && drive.status === "rejected") return null;
     return {

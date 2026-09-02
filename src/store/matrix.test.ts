@@ -105,6 +105,33 @@ describe("MatrixService", () => {
   });
 });
 
+describe("MatrixService — plan_trip's inline fetch and the commit refresh share one request", () => {
+  it("a commit for the set already being fetched inline does not hit the router again", async () => {
+    const pending: ((v: any) => void)[] = [];
+    const fn = vi.fn((url: string) => new Promise((resolve) => {
+      const n = (url.match(/table\/v1\/\w+\/(.*)\?/)?.[1] ?? "").split(";").length;
+      const row = Array.from({ length: n }, (_, j) => j * 600);
+      pending.push(() => resolve({ ok: true, status: 200, json: async () => ({ code: "Ok", durations: Array.from({ length: n }, () => row.slice()) }) }));
+    })) as unknown as typeof fetch;
+    const { t, svc } = wired({ fetchFn: fn });
+    t.actions.ensureDays("agent", 1);
+    const a = { id: "p1", ...P("A", 35.71, 139.79) };
+    const inline = svc.fetchTablesFor([a]);
+    expect(fn).toHaveBeenCalledTimes(2); // foot + car
+    // plan_trip commits the same place while the inline fetch is still in flight
+    t.actions.addResolvedStop("agent", P("A", 35.71, 139.79), { day: 1 });
+    const fresh = svc.ensureFresh();
+    expect(fn).toHaveBeenCalledTimes(2); // shared, not re-requested
+    pending.forEach((r) => r(null));
+    await inline;
+    await vi.runAllTimersAsync();
+    await fresh;
+    expect(t.store.getState().matrices.stale).toBe(false);
+    expect(t.store.getState().matrices.walk).toBeDefined();
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("MatrixService — routing service outage", () => {
   /** FOSSGIS hangs until aborted; the OSRM demo (car only) answers. */
   function outageFetch() {
