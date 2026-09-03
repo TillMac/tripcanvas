@@ -1,7 +1,8 @@
 // Handback (CONTEXT.md): the plain-text rendering of the whole trip, written
 // to be read by an agent. Line grammar per docs/design/tool-layer.md §4.
 // T8 layers the HUMAN CHANGES / YOUR PENDING EDITS sections and pagination on
-// top of this body; the human Copy button uses it directly.
+// top of this body; renderHumanTrip (below) is the people-facing variant the
+// Copy button uses.
 import { fmtHHMM } from "../ported/schedule-ops.js";
 import { computeDaySchedule, tripWarnings, type LegInfo } from "./schedule.js";
 import { editStatus, pendingEdits } from "./store.js";
@@ -118,6 +119,8 @@ export function renderTrip(s: TripState, opts: { day?: number; compact?: boolean
 const PAGINATE_OVER_CHARS = 1400;
 const PAGINATE_OVER_DAYS = 4;
 const MAX_CHANGE_LINES = 8;
+/** get_changes shows the oldest N entries and tells the agent where to page from. */
+const MAX_FEED_LINES = 15;
 
 /** Human-actor log entries after the agent's read cursor, lightly coalesced:
  *  consecutive moves of the same stop keep only the latest. */
@@ -141,7 +144,7 @@ export function renderHumanChanges(s: TripState): string {
   if (lines.length === 0) return `${head} none`;
   const shown = lines.slice(0, MAX_CHANGE_LINES);
   const more = lines.length - shown.length;
-  return [head, ...shown, ...(more > 0 ? [`(+${more} more — use get_changes)`] : [])].join("\n");
+  return [head, ...shown, ...(more > 0 ? [`(+${more} more — get_changes since:${s.lastAgentReadRev})`] : [])].join("\n");
 }
 
 export function renderPendingSection(s: TripState): string {
@@ -152,6 +155,41 @@ export function renderPendingSection(s: TripState): string {
     return `${p.editId} ${short}${p.fate === "partial" ? " (partly accepted)" : ""}`;
   });
   return `YOUR PENDING EDITS (${pend.length}): ${bits.join("; ")}`;
+}
+
+// ── human-facing (Copy itinerary) ──────────────────────────────────────────
+
+const mapsLink = (lat: number, lon: number) => `https://maps.google.com/?q=${lat.toFixed(5)},${lon.toFixed(5)}`;
+const legText = (leg: LegInfo) => `${leg.mode} ${leg.approx ? "~" : ""}${leg.minutes} min`;
+
+/** Plain itinerary for people: no ids, revs or leg grammar; a maps link per stop. */
+export function renderHumanTrip(s: TripState): string {
+  if (s.days.length === 0 && s.candidates.length === 0) return "Trip is empty.";
+  const stopCount = s.days.reduce((n, d) => n + d.stops.length, 0);
+  const lines: string[] = [`${s.days.length}-day trip — ${stopCount} stop${stopCount === 1 ? "" : "s"}`];
+  const named = s.nights.filter((n): n is string => !!n);
+  if (named.length && s.nights.every((n) => n === named[0])) lines.push(`Lodging: ${s.places[named[0]].name}`);
+  else if (named.length) lines.push(`Lodging: ${s.nights.map((n, i) => `night ${i + 1} ${n ? s.places[n].name : "-"}`).join(", ")}`);
+  for (let day = 1; day <= s.days.length; day++) {
+    const d = s.days[day - 1];
+    const sched = computeDaySchedule(s, day);
+    const night = s.nights[day - 1];
+    lines.push("", `Day ${day} · ${d.start}${night ? ` from ${s.places[night].name}` : ""}`);
+    if (d.freeStartMin) lines.push(`  free time ${d.freeStartMin} min`);
+    sched.stops.forEach((st, i) => {
+      const stop = s.stops[st.sid];
+      const place = s.places[stop.place];
+      if (st.legIn) lines.push(`  ${legText(st.legIn)}`);
+      lines.push(`  ${fmtHHMM(st.arriveMin)}–${fmtHHMM(st.departMin)}  ${place.name} (${stop.dwellMin} min)`, `               ${mapsLink(place.lat, place.lon)}`);
+      if (st.freeAfterMin > 0 && i < sched.stops.length - 1) lines.push(`  free time ${st.freeAfterMin} min`);
+    });
+    if (sched.stops.length === 0) lines.push("  (nothing planned)");
+    else if (sched.backLeg) lines.push(`  back to lodging: ${legText(sched.backLeg)} · day ends ${fmtHHMM(sched.endMin)}`);
+    else lines.push(`  day ends ${fmtHHMM(sched.endMin)}`);
+  }
+  if (s.candidates.length) lines.push("", `Not yet scheduled: ${s.candidates.map((sid) => s.places[s.stops[sid].place].name).join(", ")}`);
+  if (tripWarnings(s).approx) lines.push("", "~ = estimated travel time");
+  return lines.join("\n");
 }
 
 /**
@@ -180,8 +218,13 @@ export function renderAgentView(s: TripState, day?: number): string {
 
 /** get_changes: revision-by-revision feed with per-edit fates. */
 export function renderChanges(s: TripState, since: number): string {
+  return changesPage(s, since).text;
+}
+
+/** The feed page plus the rev the agent has now seen up to (< s.rev when the page was cut). */
+export function changesPage(s: TripState, since: number): { text: string; readTo: number } {
   if (since < s.historyStartRev) {
-    return `History starts at rev ${s.historyStartRev + 1}; full state instead:\n${renderAgentView(s)}`;
+    return { text: `History starts at rev ${s.historyStartRev + 1}; full state instead:\n${renderAgentView(s)}`, readTo: s.rev };
   }
   const entries = s.log.filter((e) => e.rev > since);
   const pend = pendingEdits(s);
@@ -189,13 +232,18 @@ export function renderChanges(s: TripState, since: number): string {
     pend.length === 0
       ? "Pending now: none"
       : `Pending now: ${pend.map((p) => `${p.editId} (${p.pendingSids.map((x) => `[${x}]`).join(" ") || "no stops"})`).join(", ")}`;
-  if (entries.length === 0) return `No changes since rev ${since}.\n${footer}`;
-  const lines = entries.map((e) => {
-    if (e.actor === "agent" && e.editId) {
+  if (entries.length === 0) return { text: `No changes since rev ${since}.\n${footer}`, readTo: s.rev };
+  const shown = entries.slice(0, MAX_FEED_LINES);
+  const more = entries.length - shown.length;
+  const lines = shown.map((e) => {
+    // Fate events (the agent's own revert/accept) are not edits: no id to act on.
+    if (e.actor === "agent" && e.editId && e.op !== "revert" && e.op !== "accept") {
       const st = editStatus(s, e.editId);
       return `rev${e.rev} agent ${e.editId}: ${e.summary}${st ? ` [${st.fate}]` : ""}`;
     }
     return `rev${e.rev} ${e.actor}: ${e.summary}`;
   });
-  return [...lines, footer].join("\n");
+  const readTo = more > 0 ? shown[shown.length - 1].rev : s.rev;
+  if (more > 0) lines.push(`(+${more} more — get_changes since:${readTo})`);
+  return { text: [...lines, footer].join("\n"), readTo };
 }

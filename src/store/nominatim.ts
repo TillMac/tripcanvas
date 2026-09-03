@@ -9,7 +9,7 @@ export const NOMINATIM_EMAIL = "tillmac.sun@gmail.com";
 /** Switchable without a client update path change: swap this constant. */
 export const NOMINATIM_ENDPOINT = "https://nominatim.openstreetmap.org";
 export const MIN_SPACING_MS = 1100;
-export const FETCH_TIMEOUT_MS = 3000;
+export const FETCH_TIMEOUT_MS = 8000;
 const GEOCACHE_KEY = "tripcanvas:geocache:v1";
 
 /** Whole-area categories a stop can never be (the "'Tokyo' is a city" gate). */
@@ -87,26 +87,27 @@ export class NominatimQueue {
     // A queued name may have been cached while it waited.
     const hit = this.loadCache()[norm];
     if (hit) return { ok: true, place: hit, cached: true };
-    if (deadline !== undefined && Date.now() > deadline) {
-      return { ok: false, kind: "deadline", message: `not resolved (time limit): '${query}'` };
-    }
+    // Per-request budget: the fetch timeout, capped so no request outlives the deadline.
+    const budget = () => (deadline === undefined ? this.timeoutMs : Math.min(this.timeoutMs, deadline - Date.now()));
+    const timeLimit = (): ResolveResult => ({ ok: false, kind: "deadline", message: `not resolved (time limit): '${query}'` });
     const wait = this.lastAt + this.spacing - Date.now();
     if (wait > 0) await sleep(wait);
+    // Checked AFTER the spacing sleep: a request that would start past the deadline is never sent.
+    if (budget() <= 0) return timeLimit();
 
     let raw: unknown;
     try {
-      raw = await this.fetchOnce(query);
-    } catch {
-      if (deadline !== undefined && Date.now() > deadline) {
-        return { ok: false, kind: "deadline", message: `not resolved (time limit): '${query}'` };
+      raw = await this.fetchOnce(query, budget());
+    } catch (err) {
+      if (budget() <= 0) return timeLimit();
+      // A timed-out query is slow, not flaky: re-sending it only doubles the cost.
+      if ((err as { name?: string })?.name === "AbortError") {
+        return { ok: false, kind: "error", message: `search timed out for '${query}' — try again.` };
       }
       try {
-        raw = await this.fetchOnce(query); // one retry
-      } catch (err) {
-        return {
-          ok: false, kind: "error",
-          message: `search service unreachable for '${query}' — try again.`,
-        };
+        raw = await this.fetchOnce(query, budget()); // one retry for network/HTTP errors
+      } catch {
+        return { ok: false, kind: "error", message: `search service unreachable for '${query}' — try again.` };
       }
     }
 
@@ -123,13 +124,13 @@ export class NominatimQueue {
     return { ok: true, place, cached: false };
   }
 
-  private async fetchOnce(query: string): Promise<unknown> {
+  private async fetchOnce(query: string, timeoutMs: number): Promise<unknown> {
     this.lastAt = Date.now();
     const url =
       nominatimSearchUrl(query, { limit: 1 }).replace("https://nominatim.openstreetmap.org", NOMINATIM_ENDPOINT) +
       `&email=${encodeURIComponent(NOMINATIM_EMAIL)}`;
     const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), this.timeoutMs);
+    const timer = setTimeout(() => ctl.abort(), timeoutMs);
     try {
       const res = await this.fetchFn(url, { signal: ctl.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);

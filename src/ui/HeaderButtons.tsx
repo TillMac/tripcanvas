@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { matrixService, trip, tripStore } from "../store/index.js";
 import { runArrange } from "../store/arrange.js";
-import { renderTrip } from "../store/handback.js";
+import { renderHumanTrip } from "../store/handback.js";
 
 export function ArrangeButton() {
   const [status, setStatus] = useState<string | null>(null);
@@ -37,7 +37,7 @@ export function CopyButton() {
       title="Copy the whole itinerary as readable text"
       className="rounded-md px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
       onClick={() => {
-        const text = renderTrip(tripStore.getState());
+        const text = renderHumanTrip(tripStore.getState());
         void navigator.clipboard?.writeText(text).then(() => {
           setCopied(true);
           setTimeout(() => setCopied(false), 1500);

@@ -82,3 +82,20 @@ describe("renderTrip", () => {
     expect(renderTrip(t.store.getState())).toContain("Warnings: none");
   });
 });
+
+describe("renderHumanTrip (Copy itinerary)", () => {
+  it("reads like an itinerary: times, names, maps links — no ids, revs or leg grammar", async () => {
+    const { loadSampleTrip } = await import("./sampleTrip.js");
+    const { renderHumanTrip } = await import("./handback.js");
+    const t = createTripStore();
+    loadSampleTrip(t);
+    const out = renderHumanTrip(t.store.getState());
+    expect(out).toMatch(/^3-day trip — 10 stops\nLodging: /);
+    expect(out).toContain("Day 1 · 09:00 from ");
+    expect(out).toMatch(/\d\d:\d\d–\d\d:\d\d  Senso-ji Temple \(\d+ min\)/);
+    expect(out).toContain("https://maps.google.com/?q=");
+    expect(out).toMatch(/\n  walk ~?\d+ min\n/);
+    expect(out).toContain("Not yet scheduled: ");
+    expect(out).not.toMatch(/\[[sc]\d+\]|rev\d|\|walk|d\d+ /);
+  });
+});

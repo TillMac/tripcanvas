@@ -12,6 +12,34 @@ and the agent can read back what the human changed since it last looked.
 
 **Live site:** https://tripcanvas.tillmac.com
 
+## Try it
+
+1. **Open the site in a WebMCP-capable browser.** Either:
+   - **Chrome 149+**: the production origin ships an origin-trial token, so
+     `document.modelContext` is there in stock Chrome. To be safe (or on
+     another origin), enable `chrome://flags/#enable-webmcp-testing` and
+     restart. `chrome://flags/#devtools-webmcp-support` adds a
+     **DevTools → Application → WebMCP** panel that lists the 11 tools and
+     lets you run any of them by hand.
+   - **ChatGPT desktop app**, built-in browser (`Cmd+Shift+B`) with
+     GPT-5.6 Sol or Terra and **Settings → Browser → Permissions → Enable
+     site tools** on. The address bar's **Site tools** menu shows what the
+     page offers.
+2. **Ask the agent** — the empty state has a one-click prompt: *"Plan 3
+   days in Tokyo: temples, museums, Shibuya and teamLab — stay near
+   Shinjuku."* The agent picks the places; a cold `plan_trip` resolves them
+   through public Nominatim at ~1 name/s (about 10–15 s for 8 names, longer
+   if the tab is in the background; instant once cached), and the trip lands
+   as one amber, pending batch.
+3. **Edit alongside it.** Drag a stop, change a time, then ask *"what did I
+   change?"* — the agent's next `get_itinerary` includes your edits. Ask it
+   to *"switch the leg into Shibuya to transit"* and read the MOTIS
+   line/stop off the schedule. Revert any of its edits from the amber bar.
+
+No agent? **Load a sample 3-day Tokyo trip** still shows the whole
+review loop, and the **"What the agent sees"** panel under the schedule
+prints the exact `get_itinerary` text live.
+
 ## Why this use case fits WebMCP
 
 Planning a trip with an AI today is a copy-paste loop: the model writes a text
@@ -38,7 +66,12 @@ the page *is* the interface for both actors.
   agent edits are still pending; `get_changes` gives a revision feed with
   per-edit fates (pending / accepted / reverted).
 
-## What people and agents can now do together
+## What people and agents can now do together — that was difficult or impossible before
+
+**Before:** the model writes a text itinerary, the human re-types it into a
+maps app, and every correction is another paste. **Now:** one live map and
+schedule that both edit through the same operations, with the agent's
+changes reviewable in place and its next read showing what the human did.
 
 Ask your agent to *"plan 3 days in Tokyo"* and watch resolving pins drop onto
 the map (`plan_trip`, ≤12 names, one atomic pending batch). Drag a stop to
@@ -68,9 +101,10 @@ searching, and undoing on the same canvas.
   store action the UI button imports → result string. Failures are
   explanatory `ERROR: ...` strings; tools are never unregistered.
 - **30-second budget respected**: `plan_trip` resolves ≤12 names serially
-  through one app-wide Nominatim queue (≥1.1s spacing, geocache, 3s timeout +
-  one retry) under a 22s wall-clock deadline — worst case ≈27s, warm-cache
-  reruns a few seconds.
+  through one app-wide Nominatim queue (≥1.1s spacing, geocache, 8s timeout
+  clipped to the deadline, no retry on timeout) under a 22s wall-clock
+  deadline that the OSRM phases share — worst case ≈22s, warm-cache reruns a
+  few seconds.
 - **Pure static site** (ADR-0001): Nominatim, OSRM and transitous/MOTIS are
   called directly from the browser (all CORS `*`); every failure degrades to
   marked-approximate times or a soft error — the itinerary never blocks.
@@ -96,18 +130,19 @@ leg overrides, the handback renderer, and the co-editing canvas UI
 ```bash
 pnpm install
 pnpm dev          # local dev server
-pnpm test         # 180+ vitest tests — no real HTTP anywhere
+pnpm test         # 190+ vitest tests — no real HTTP anywhere
 pnpm build        # typecheck + production build
 ```
 
 ## Deploy
 
 Vercel static site. `vercel.json` sends `Origin-Agent-Cluster: ?1` and sets
-no restrictive `Permissions-Policy` (both would disable WebMCP). Add the
-origin-trial `<meta>` token for the production origin in `index.html`
-(trial `WebMCP`, id 4163014905550602241, Chrome 149–156) so the tools work in
-stock Chrome without the flag; with the flag
-(`chrome://flags/#enable-webmcp-testing`) no token is needed.
+no restrictive `Permissions-Policy` (both would disable WebMCP).
+`index.html` carries the origin-trial `<meta>` token for
+`tripcanvas.tillmac.com` (trial `WebMCP`, id 4163014905550602241, Chrome
+149–156; this token expires 2026-11-17) so the tools work in stock Chrome
+without the flag; on any other origin, or with the flag
+(`chrome://flags/#enable-webmcp-testing`), no token is needed.
 
 ## License
 

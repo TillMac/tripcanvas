@@ -128,8 +128,11 @@ export function arrangeTrip(s: TripState, dayCountOpt?: number): ArrangeOutcome 
       return { sid, prefs: ds };
     })
     .sort((a, b) => a.prefs[0].d - b.prefs[0].d);
+  // Balance: a day takes no more than its fair share (seeds * cap >= placed,
+  // so this alone never overflows), so 8 stops / 3 days is 3-3-2, not 5-2-1.
+  const cap = Math.min(MAX_ARRANGE_PER_DAY, Math.ceil(placed.length / seeds.length));
   for (const { sid, prefs } of ranked) {
-    const open = prefs.find((p) => groups[p.g].length < MAX_ARRANGE_PER_DAY);
+    const open = prefs.find((p) => groups[p.g].length < cap);
     if (open) groups[open.g].push(sid);
     else overflow.push(sid);
   }

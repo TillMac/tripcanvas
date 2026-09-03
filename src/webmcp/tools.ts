@@ -37,6 +37,9 @@ import { toPlaceInput } from "../store/nominatim.js";
 import { legKey } from "../store/schedule.js";
 import { DEFAULT_DWELL_MIN } from "../store/store.js";
 
+/** Stop-id argument: get_itinerary prints ids as `[s3]`, so accept "s3", "[s3]" or "S3". */
+const sidArg = z.string().min(1).transform((x) => x.trim().replace(/^\[|\]$/g, "").toLowerCase());
+
 // ── formatting helpers ─────────────────────────────────────────────────────
 function resolvedLabel(place: PlaceCandidate): string {
   const city = place.city;
@@ -69,9 +72,9 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
       type: "object",
       properties: {
         name: { type: "string", description: "Free-text place name; include the city for accuracy." },
-        day: { type: "number", description: "1-based target day; omit to add as a candidate." },
-        position: { type: "number", description: "1-based slot in the day; omit for best insertion by travel time." },
-        dwellMinutes: { type: "number", description: "Minutes at the stop. Default 60." },
+        day: { type: "number", minimum: 1, description: "1-based target day; omit to add as a candidate." },
+        position: { type: "number", minimum: 1, description: "1-based slot in the day; omit for best insertion by travel time." },
+        dwellMinutes: { type: "number", minimum: 0, description: "Minutes at the stop. Default 60." },
       },
       required: ["name"],
     },
@@ -114,15 +117,15 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
       type: "object",
       properties: {
         stop: { type: "string", description: "[s#] or [c#] id from get_itinerary." },
-        day: { type: "number", description: "Target day 1..N, or 0 to send it to candidates." },
-        position: { type: "number", description: "1-based slot; omit for best insertion by travel time." },
+        day: { type: "number", minimum: 0, description: "Target day 1..N, or 0 to send it to candidates." },
+        position: { type: "number", minimum: 1, description: "1-based slot; omit for best insertion by travel time." },
       },
       required: ["stop", "day"],
     },
     annotations: { readOnlyHint: false, untrustedContentHint: false },
     execute: wrap(async (args) => {
       const p = z
-        .object({ stop: z.string().min(1), day: z.number().int(), position: z.number().int().min(1).optional() })
+        .object({ stop: sidArg, day: z.number().int(), position: z.number().int().min(1).optional() })
         .safeParse(args);
       if (!p.success) return zodErr(p.error);
       const r = trip.actions.moveStop("agent", p.data.stop, p.data.day, p.data.position);
@@ -148,11 +151,11 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
     inputSchema: {
       type: "object",
       properties: {
-        day: { type: "number", description: "Day 1..N." },
+        day: { type: "number", minimum: 1, description: "Day 1..N." },
         dayStart: { type: "string", description: "New HH:MM 24h start for the day." },
         stop: { type: "string", description: "[s#] id to retime; required with dwellMinutes or freeMinutesAfter." },
-        dwellMinutes: { type: "number", description: "New minutes spent at the stop." },
-        freeMinutesAfter: { type: "number", description: "Unscheduled minutes after the stop; 0 removes the block." },
+        dwellMinutes: { type: "number", minimum: 0, description: "New minutes spent at the stop." },
+        freeMinutesAfter: { type: "number", minimum: 0, description: "Unscheduled minutes after the stop; 0 removes the block." },
       },
       required: ["day"],
     },
@@ -162,7 +165,7 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
         .object({
           day: z.number().int(),
           dayStart: z.string().optional(),
-          stop: z.string().optional(),
+          stop: sidArg.optional(),
           dwellMinutes: z.number().int().min(0).optional(),
           freeMinutesAfter: z.number().int().min(0).optional(),
         })
@@ -199,7 +202,7 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
       type: "object",
       properties: {
         name: { type: "string", description: "Lodging name or address; include the city." },
-        nights: { type: "array", items: { type: "number" }, description: "Night numbers to anchor; omit for every night." },
+        nights: { type: "array", items: { type: "number", minimum: 0 }, description: "Night numbers to anchor; omit for every night." },
       },
       required: ["name"],
     },
@@ -238,7 +241,7 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
     inputSchema: {
       type: "object",
       properties: {
-        dayCount: { type: "number", description: "Target number of days 1-7; omit to keep the current count." },
+        dayCount: { type: "number", minimum: 1, maximum: 7, description: "Target number of days 1-7; omit to keep the current count." },
       },
     },
     annotations: { readOnlyHint: false, untrustedContentHint: false },
@@ -276,7 +279,7 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
       properties: {
         places: { type: "array", items: { type: "string" }, description: "Flat place names, e.g. 'Ghibli Museum, Mitaka'. Use with dayCount, or give days instead. 12 names max incl. lodging." },
         days: { type: "array", items: { type: "array", items: { type: "string" } }, description: "Pre-grouped names, one inner array per day. Grouping kept; each day still reordered by travel time." },
-        dayCount: { type: "number", description: "Number of days, 1-7. Required with places; ignored with days." },
+        dayCount: { type: "number", minimum: 1, maximum: 7, description: "Number of days, 1-7. Required with places; ignored with days." },
         lodging: { type: "string", description: "Lodging name, applies to all nights. Per-night lodging: set_lodging afterwards." },
         dayStart: { type: "string", description: "HH:MM start for every day. Default 09:00." },
         replace: { type: "boolean", description: "Must be true to overwrite an existing trip." },
@@ -306,16 +309,16 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
     inputSchema: {
       type: "object",
       properties: {
-        day: { type: "number", description: "Day 1..N containing the leg." },
+        day: { type: "number", minimum: 1, description: "Day 1..N containing the leg." },
         fromStop: { type: "string", description: "[s#] id the leg departs from, or 'lodging' for the day's first leg." },
-        mode: { type: "string", description: "walk | drive | transit." },
+        mode: { type: "string", enum: ["walk", "drive", "transit"], description: "walk | drive | transit." },
       },
       required: ["day", "fromStop", "mode"],
     },
     annotations: { readOnlyHint: false, untrustedContentHint: true },
     execute: wrap(async (args) => {
       const p = z
-        .object({ day: z.number().int(), fromStop: z.string().min(1), mode: z.enum(["walk", "drive", "transit"]) })
+        .object({ day: z.number().int(), fromStop: sidArg, mode: z.enum(["walk", "drive", "transit"]) })
         .safeParse(args);
       if (!p.success) return zodErr(p.error);
       const s = state();

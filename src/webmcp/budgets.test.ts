@@ -90,6 +90,38 @@ describe("sample result lengths (~1,500 budget)", () => {
     expect(one.length).toBeLessThanOrEqual(1500);
   });
 
+  it("get_changes after a long human session is capped and tells the agent where to page from", async () => {
+    const { trip, tools } = servicesDownDeps();
+    trip.actions.ensureDays("human", 1);
+    trip.actions.addResolvedStop("human", P("Senso-ji Temple", 35.714, 139.796), { day: 1 });
+    for (let i = 0; i < 30; i++) trip.actions.setDwell("human", "s1", 30 + i);
+    const out = (await tools.get_changes.execute({ since: 0 })) as string;
+    expect(out.length).toBeLessThanOrEqual(1500);
+    const feed = out.split("\n").filter((l) => l.startsWith("rev"));
+    expect(feed.length).toBe(15);
+    const lastShown = Number(feed[feed.length - 1].match(/^rev(\d+)/)![1]);
+    expect(out).toContain(`(+17 more — get_changes since:${lastShown})`);
+    // the read cursor stops at the last SHOWN rev, so the default next call continues the feed
+    expect(trip.store.getState().lastAgentReadRev).toBe(lastShown);
+    const rest = (await tools.get_changes.execute({})) as string;
+    expect(rest.split("\n").filter((l) => l.startsWith("rev")).length).toBe(15);
+    expect(rest).toContain("(+2 more — get_changes since:");
+    // an explicit re-read of old history never moves the cursor backwards
+    const cursor = trip.store.getState().lastAgentReadRev;
+    await tools.get_changes.execute({ since: 0 });
+    expect(trip.store.getState().lastAgentReadRev).toBe(cursor);
+  });
+
+  it("the agent's own revert shows in get_changes as an event, not as an edit id it could revert", async () => {
+    const { trip, tools } = servicesDownDeps();
+    trip.actions.ensureDays("human", 1);
+    trip.actions.addResolvedStop("agent", P("Senso-ji Temple", 35.714, 139.796), { day: 1 }); // e1
+    trip.actions.revert("agent", "e1"); // logged as e2, a fate event
+    const out = (await tools.get_changes.execute({ since: 0 })) as string;
+    expect(out).toContain("e1");
+    expect(out).not.toMatch(/agent e2:/);
+  });
+
   it("the planning guide fits", async () => {
     const { tools } = servicesDownDeps();
     expect(((await tools.get_planning_guide.execute({})) as string).length).toBeLessThanOrEqual(1500);

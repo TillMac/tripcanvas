@@ -85,14 +85,13 @@ export class MatrixService {
     places: { id: string; lat: number; lon: number }[],
   ): Promise<{ walk?: DurationMatrix; drive?: DurationMatrix; ids: string[] } | null> {
     const ids = places.map((p) => p.id).sort();
-    const hash = ids.join(";");
     const byId = new Map(places.map((p) => [p.id, p]));
-    const cached = this.cacheGet(hash);
-    if (cached) return { ...cached, ids };
     const coords = ids.map((pid) => `${byId.get(pid)!.lon},${byId.get(pid)!.lat}`).join(";");
+    const cached = this.cacheGet(coords);
+    if (cached) return { ...cached, ids };
     const pair = await this.fetchPair(coords);
     if (!pair) return null;
-    if (pair.walk && pair.drive) this.cacheSet(hash, pair.walk, pair.drive);
+    if (pair.walk && pair.drive) this.cacheSet(coords, pair.walk, pair.drive);
     return { ...pair, ids };
   }
 
@@ -114,18 +113,20 @@ export class MatrixService {
     const ids = hash.split(";");
     this.lastAttemptHash = hash;
 
-    const cached = this.cacheGet(hash);
+    // Cache by coordinates: place ids restart at p1 for every new trip, so an
+    // id-keyed entry would hand another trip's times to this one as real.
+    const coords = ids.map((pid) => `${s.places[pid].lon},${s.places[pid].lat}`).join(";");
+    const cached = this.cacheGet(coords);
     if (cached) {
       this.store.setState({ matrices: { walk: cached.walk, drive: cached.drive, ids, forHash: hash, stale: false } });
       return;
     }
 
-    const coords = ids.map((pid) => `${s.places[pid].lon},${s.places[pid].lat}`).join(";");
     const pair = await this.fetchPair(coords);
     if (pair) {
       // A missing profile (walk) simply falls through to estimates per leg.
       this.store.setState({ matrices: { ...pair, ids, forHash: hash, stale: false } });
-      if (pair.walk && pair.drive) this.cacheSet(hash, pair.walk, pair.drive);
+      if (pair.walk && pair.drive) this.cacheSet(coords, pair.walk, pair.drive);
     } else {
       // Keep the old matrix (covered pairs still real); schedule falls back to
       // estimates for uncovered pairs; page stays editable (ADR-0001).
@@ -152,9 +153,11 @@ export class MatrixService {
     };
   }
 
-  /** FOSSGIS first (foot + car); car alone retries on the OSRM demo. Each attempt is timeout-bounded. */
+  /** foot → FOSSGIS; car → OSRM demo, then FOSSGIS. Each attempt is timeout-bounded. */
   private async fetchTable(profile: "foot" | "car", coords: string): Promise<DurationMatrix> {
-    const urls = profile === "car" ? [osrmTableUrl("car", coords), fallbackCarTableUrl(coords)] : [osrmTableUrl("foot", coords)];
+    // Split the load: foot on FOSSGIS, car on the OSRM demo (FOSSGIS as its fallback) —
+    // one request per host per refresh keeps both under their per-IP limits.
+    const urls = profile === "car" ? [fallbackCarTableUrl(coords), osrmTableUrl("car", coords)] : [osrmTableUrl("foot", coords)];
     let lastErr: unknown = new Error("router backing off");
     for (const url of urls) {
       if (isFossgis(url) && Date.now() < this.blockedUntil) continue;
@@ -174,9 +177,9 @@ export class MatrixService {
     throw lastErr;
   }
 
-  private cacheGet(hash: string): { walk: DurationMatrix; drive: DurationMatrix } | null {
+  private cacheGet(coords: string): { walk: DurationMatrix; drive: DurationMatrix } | null {
     try {
-      const raw = this.deps.storage?.getItem(CACHE_PREFIX + hash);
+      const raw = this.deps.storage?.getItem(CACHE_PREFIX + coords);
       if (!raw) return null;
       const v = JSON.parse(raw);
       if (!Array.isArray(v?.walk) || !Array.isArray(v?.drive)) return null;
@@ -186,9 +189,9 @@ export class MatrixService {
     }
   }
 
-  private cacheSet(hash: string, walk: DurationMatrix, drive: DurationMatrix): void {
+  private cacheSet(coords: string, walk: DurationMatrix, drive: DurationMatrix): void {
     try {
-      this.deps.storage?.setItem(CACHE_PREFIX + hash, JSON.stringify({ walk, drive }));
+      this.deps.storage?.setItem(CACHE_PREFIX + coords, JSON.stringify({ walk, drive }));
     } catch {
       /* best effort */
     }

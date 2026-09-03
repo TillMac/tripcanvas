@@ -3,7 +3,7 @@
 // readOnlyHint stays honest). revert_pending touches the agent's own
 // still-pending edits only.
 import { z } from "zod";
-import { renderAgentView, renderChanges } from "../store/handback.js";
+import { changesPage, renderAgentView } from "../store/handback.js";
 import { editStatus, pendingEdits } from "../store/store.js";
 import type { RegisterToolOptions } from "./modelContext.js";
 import { err, wrap } from "./result.js";
@@ -43,7 +43,7 @@ export function buildReadTools(deps: ToolDeps): RegisterToolOptions[] {
     inputSchema: {
       type: "object",
       properties: {
-        since: { type: "number", description: "Revision to list changes after (from an earlier result). Default: your last read." },
+        since: { type: "number", minimum: 0, description: "Revision to list changes after (from an earlier result). Default: your last read." },
       },
     },
     annotations: { readOnlyHint: true, untrustedContentHint: true },
@@ -51,9 +51,9 @@ export function buildReadTools(deps: ToolDeps): RegisterToolOptions[] {
       const p = z.object({ since: z.number().int().min(0).optional() }).safeParse(args);
       if (!p.success) return err("since must be a whole number revision.");
       const s = state();
-      const out = renderChanges(s, p.data.since ?? s.lastAgentReadRev);
-      trip.actions.advanceAgentRead();
-      return out;
+      const page = changesPage(s, p.data.since ?? s.lastAgentReadRev);
+      trip.actions.advanceAgentRead(page.readTo);
+      return page.text;
     }),
   };
 

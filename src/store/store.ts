@@ -65,7 +65,10 @@ export function createTripStore(deps: TripStoreDeps = {}) {
     // accept, logged) — so revert only ever touches human-untouched items.
     if (actor === "human" && group.sids) {
       for (const sid of group.sids) {
-        const cur = resolveSid(s, sid);
+        // A candidate<->day move names the stop by its NEW id, which only
+        // exists after the rename; clear the mark on the id it still has.
+        const pre = group.ops.find((o): o is Extract<Op, { t: "renameStop" }> => o.t === "renameStop" && o.to === sid);
+        const cur = resolveSid(s, pre?.from ?? sid);
         const e = cur ? s.stops[cur]?.pending : undefined;
         if (cur && e) {
           const ops: Op[] = [{ t: "setPending", sid: cur, editId: undefined }];
@@ -665,8 +668,10 @@ export function createTripStore(deps: TripStoreDeps = {}) {
     setResolvingPins(pins: ResolvingPin[]): void {
       store.setState({ resolvingPins: pins });
     },
-    advanceAgentRead(): void {
-      store.setState({ lastAgentReadRev: get().rev });
+    /** Mark what the agent has now seen; a cut feed page passes its last shown rev. Never moves backwards. */
+    advanceAgentRead(toRev?: number): void {
+      const s = get();
+      store.setState({ lastAgentReadRev: Math.max(s.lastAgentReadRev, Math.min(toRev ?? s.rev, s.rev)) });
     },
   };
 
@@ -684,7 +689,9 @@ export function createTripStore(deps: TripStoreDeps = {}) {
 // ── derived queries (pure, exported for tools and UI) ─────────────────────
 export function editStatus(s: TripState, editId: Eid): EditStatus | null {
   const entry = s.log.find((e) => e.editId === editId && e.actor === "agent");
-  if (!entry) return null;
+  // Fate events (an agent's own revert/accept) carry ids too but are not edits:
+  // reverting one would silently redo the edit it undid.
+  if (!entry || entry.op === "revert" || entry.op === "accept") return null;
   const sids = entry.sids ?? [];
   const pendingSids: Sid[] = [];
   const keptSids: Sid[] = [];

@@ -76,6 +76,39 @@ describe("NominatimQueue", () => {
     expect(store.getItem("tripcanvas:geocache:v1")).toBeNull();
   });
 
+  it("timeout (AbortError) is not retried", async () => {
+    const fetchFn = vi.fn((_u: string, init?: RequestInit) => new Promise((_, rej) => {
+      init?.signal?.addEventListener("abort", () => rej(Object.assign(new Error("aborted"), { name: "AbortError" })));
+    })) as unknown as typeof fetch;
+    const q = new NominatimQueue({ fetchFn, fetchTimeoutMs: 100 });
+    const p = q.resolve("A");
+    await vi.advanceTimersByTimeAsync(101);
+    const r = await p;
+    expect(r).toMatchObject({ ok: false, kind: "error" });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("a request never outlives the deadline (timeout capped to remaining time)", async () => {
+    const fetchFn = vi.fn((_u: string, init?: RequestInit) => new Promise((_, rej) => {
+      init?.signal?.addEventListener("abort", () => rej(Object.assign(new Error("aborted"), { name: "AbortError" })));
+    })) as unknown as typeof fetch;
+    const q = new NominatimQueue({ fetchFn, fetchTimeoutMs: 8000 });
+    const p = q.resolve("A", { deadline: Date.now() + 500 });
+    await vi.advanceTimersByTimeAsync(501);
+    expect(await p).toMatchObject({ ok: false, kind: "deadline" });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("a request whose deadline passes during the 1.1s spacing wait is never sent", async () => {
+    const fetchFn = vi.fn(okFetch(hit("A"))) as unknown as typeof fetch;
+    const q = new NominatimQueue({ fetchFn });
+    await q.resolve("A"); // sets the spacing clock
+    const p = q.resolve("B", { deadline: Date.now() + 500 }); // would be dispatched at +1100ms
+    await vi.advanceTimersByTimeAsync(1200);
+    expect(await p).toMatchObject({ ok: false, kind: "deadline" });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
   it("deadline is checked before request and before retry", async () => {
     const fetchFn = vi.fn(async () => { throw new Error("boom"); }) as unknown as typeof fetch;
     const q = new NominatimQueue({ fetchFn });

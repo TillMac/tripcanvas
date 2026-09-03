@@ -58,6 +58,22 @@ describe("arrangeTrip", () => {
     expect(r.candidates).toHaveLength(2);
   });
 
+  it("spreads stops fairly across days: 8 stops / 3 days is 3-3-2, nothing overflows", () => {
+    const t = createTripStore();
+    t.actions.ensureDays("human", 1);
+    // one tight cluster plus two outliers — nearest-seed alone would pile 5+ onto the cluster's day
+    for (let i = 0; i < 6; i++) {
+      t.actions.addResolvedStop("human", P(`C${i}`, 35.70 + i * 0.001, 139.70 + i * 0.001), { day: 1, position: i + 1 });
+    }
+    t.actions.addResolvedStop("human", P("N", 35.90, 139.70), {});
+    t.actions.addResolvedStop("human", P("S", 35.50, 139.70), {});
+    for (const c of ["c1", "c2"]) t.actions.moveStop("human", c, 1);
+    const r = arrangeTrip(t.store.getState(), 3);
+    if ("error" in r) throw new Error(r.error);
+    expect(r.days.map((d) => d.stops.length).sort()).toEqual([2, 3, 3]);
+    expect(r.overflow).toEqual([]);
+  });
+
   it("grows or shrinks to dayCount; candidates untouched", () => {
     const t = clusteredTrip();
     t.actions.addResolvedStop("human", P("Parked", 35.7, 139.8), {});

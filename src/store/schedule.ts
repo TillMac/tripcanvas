@@ -65,7 +65,8 @@ export function legInfo(s: TripState, fromPid: Pid, toPid: Pid): LegInfo {
     return { fromPid, toPid, mode, minutes: override.transit.totalMin, approx: false, transit: override.transit };
   }
   const lookup = mode === "transit" ? null : matrixMinutes(s, mode, fromPid, toPid);
-  if (lookup != null) return { fromPid, toPid, mode, minutes: lookup, approx: s.matrices.stale };
+  // A covered pair is a real routed time even while the set is being refreshed.
+  if (lookup != null) return { fromPid, toPid, mode, minutes: lookup, approx: false };
   const minutes = mode === "drive" ? Math.round((km / DRIVE_KMH) * 60) : estimateMinutes(km);
   return { fromPid, toPid, mode, minutes, approx: true };
 }

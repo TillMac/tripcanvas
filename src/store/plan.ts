@@ -1,7 +1,7 @@
 // plan_trip orchestration (docs/design/tool-layer.md §3): one synchronous
 // execute, atomic commit. Serial resolution through the ONE app-wide queue
-// (3s fetch timeout + one retry inside the queue; 22s wall-clock deadline
-// checked before every request), ephemeral resolving pins during the call,
+// (8s fetch timeout, clipped to the 22s wall-clock deadline; one retry for
+// network/HTTP errors only, never for a timeout), resolving pins during the call,
 // ONE pending ActionGroup at the end. The OSRM phases (tables before grouping,
 // ensureFresh after the commit) share the SAME deadline: a hung router costs
 // real times, never the tool call. Worst case ~23s < the 30s tool budget.

@@ -42,11 +42,6 @@ export function PendingBar() {
           </button>
         </span>
       ))}
-      {pend.some((p) => p.entry.op === "plan") && (
-        <span className="basis-full text-[10px] text-amber-800">
-          Places picked by your agent · routes &amp; times from OpenStreetMap services
-        </span>
-      )}
       <button
         type="button"
         className="ml-auto rounded-full bg-amber-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-amber-700"
@@ -54,6 +49,12 @@ export function PendingBar() {
       >
         Accept all
       </button>
+      {/* full-width footnote, after the primary action so Accept all stays on the first row */}
+      {pend.some((p) => p.entry.op === "plan") && (
+        <span className="basis-full text-[10px] text-amber-800">
+          Places picked by your agent · routes &amp; times from OpenStreetMap services
+        </span>
+      )}
     </div>
   );
 }

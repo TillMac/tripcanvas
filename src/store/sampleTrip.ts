@@ -1,6 +1,6 @@
 // One-click sample trip (MLP: a visitor with no agent still sees the product).
-// Loaded as ONE human commit — undoable, honest (no fabricated agent edits);
-// the matrix service then fetches real OSRM times as with any edit.
+// Loaded as ONE human commit — undoable; the matrix service then fetches real
+// OSRM times as with any edit. Plus one labelled EXAMPLE agent edit (below).
 import type { createTripStore } from "./store.js";
 import type { DayRec, Pid, Place, Sid, Stop } from "./types.js";
 
@@ -36,8 +36,11 @@ const DAYS: DayRec[] = [
   { start: "09:00", stops: ["s9", "s10"] },
 ];
 
-export function loadSampleTrip(trip: Pick<ReturnType<typeof createTripStore>, "store" | "actions">): void {
-  trip.store.setState({ nextP: 14, nextS: 11, nextC: 3, nextE: 1 });
+export function loadSampleTrip(
+  trip: Pick<ReturnType<typeof createTripStore>, "store" | "actions">,
+  opts: { exampleEdit?: boolean } = {},
+): void {
+  trip.store.setState({ nextP: 14, nextS: 11, nextC: 3 });
   trip.actions.planCommit(
     "human",
     {
@@ -51,23 +54,29 @@ export function loadSampleTrip(trip: Pick<ReturnType<typeof createTripStore>, "s
   );
   // One clearly-labelled EXAMPLE pending edit so a visitor with no agent still
   // sees the review loop (amber row, pulsing pin, per-edit Revert). The label
-  // makes it honest: no real agent made it.
+  // makes it honest: no real agent made it. Skipped when a real agent is
+  // connected — it would read its own feed and find an edit it never made.
+  if (opts.exampleEdit === false) return;
+  // The id comes from the live counter: a reset to e1 would collide with a
+  // reverted e1 still in the persisted log, and editStatus finds the old one.
   const s = trip.store.getState();
+  const eid = `e${s.nextE}`;
   trip.store.setState({
     rev: s.rev + 1,
-    nextE: 2,
-    stops: { ...s.stops, s8: { ...s.stops.s8, pending: "e1" } },
+    nextE: s.nextE + 1,
+    stops: { ...s.stops, s4: { ...s.stops.s4, pending: eid } },
     log: [
       ...s.log,
       {
         rev: s.rev + 1,
         actor: "agent",
         op: "add",
-        summary: "example: added [s8] Shinjuku Gyoen to D2 pos4 — press Revert to see review",
-        ops: [],
-        inverse: [{ t: "removeFromDay", sid: "s8" }, { t: "delStop", sid: "s8" }],
-        editId: "e1",
-        sids: ["s8"],
+        summary: "example: added [s4] Akihabara Electric Town to D1 pos4 — press Revert to see review",
+        // Real ops, so undoing a Revert of it (Ctrl+Z) puts the stop back.
+        ops: [{ t: "addStop", sid: "s4", stop: { ...STOPS.s4, pending: eid } }, { t: "insertDay", sid: "s4", day: 1, index: 3 }],
+        inverse: [{ t: "removeFromDay", sid: "s4" }, { t: "delStop", sid: "s4" }],
+        editId: eid,
+        sids: ["s4"],
       },
     ],
   });

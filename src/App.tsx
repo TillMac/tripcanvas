@@ -4,6 +4,7 @@ import { actions, trip } from "./store/index.js";
 import { loadSampleTrip } from "./store/sampleTrip.js";
 import { tripWarnings } from "./store/schedule.js";
 import { computeDaySchedule } from "./store/schedule.js";
+import { AgentView } from "./ui/AgentView.js";
 import { CandidateDrawer } from "./ui/CandidateDrawer.js";
 import { DayTabs } from "./ui/DayTabs.js";
 import { MapPane, type MapLeg, type MapMarker } from "./ui/MapPane.js";
@@ -92,7 +93,7 @@ function EmptyState({ agentAvailable }: { agentAvailable: boolean }) {
       <button
         type="button"
         className="rounded-full bg-teal-700 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-teal-800"
-        onClick={() => loadSampleTrip(trip)}
+        onClick={() => loadSampleTrip(trip, { exampleEdit: !agentAvailable })}
       >
         Load a sample 3-day Tokyo trip
       </button>
@@ -170,7 +171,7 @@ export default function App({ agentAvailable }: { agentAvailable: boolean }) {
         </h1>
         {agentAvailable && (
           <span className="flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-            ● agent connected · 11 WebMCP tools
+            ● WebMCP ready · 11 tools
           </span>
         )}
         <SearchBox activeDay={day} />
@@ -233,6 +234,7 @@ export default function App({ agentAvailable }: { agentAvailable: boolean }) {
               <SchedulePanel day={day} selectedId={selectedId} onSelect={setSelectedId} />
             )}
             {!empty && <CandidateDrawer activeDay={day} />}
+            {!empty && <AgentView />}
           </div>
         </div>
       </DndContext>

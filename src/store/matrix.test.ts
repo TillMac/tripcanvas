@@ -105,6 +105,28 @@ describe("MatrixService", () => {
   });
 });
 
+describe("MatrixService — cache is keyed by coordinates, not place ids", () => {
+  it("a new trip that reuses p1/p2 for different places does not inherit the old trip's times", async () => {
+    const storage = memStorage();
+    const a = wired({ storage });
+    a.t.actions.ensureDays("human", 1);
+    a.t.actions.addResolvedStop("human", P("Tokyo A", 35.70, 139.70), { day: 1 });
+    a.t.actions.addResolvedStop("human", P("Tokyo B", 35.71, 139.71), { day: 1, position: 2 });
+    await vi.runAllTimersAsync();
+    expect(a.fetchFn).toHaveBeenCalledTimes(2);
+
+    // fresh store: ids restart at p1, p2 — same placedHash, different places
+    const b = wired({ storage });
+    b.t.actions.ensureDays("human", 1);
+    b.t.actions.addResolvedStop("human", P("Osaka A", 34.69, 135.50), { day: 1 });
+    b.t.actions.addResolvedStop("human", P("Osaka B", 34.70, 135.51), { day: 1, position: 2 });
+    expect(placedHash(b.t.store.getState())).toBe(placedHash(a.t.store.getState()));
+    await vi.runAllTimersAsync();
+    expect(b.fetchFn).toHaveBeenCalledTimes(2);
+    expect(b.t.store.getState().matrices.stale).toBe(false);
+  });
+});
+
 describe("MatrixService — plan_trip's inline fetch and the commit refresh share one request", () => {
   it("a commit for the set already being fetched inline does not hit the router again", async () => {
     const pending: ((v: any) => void)[] = [];

@@ -85,6 +85,20 @@ describe("pending model (ADR-0004)", () => {
     expect(editStatus(s, "e1")?.fate).toBe("accepted");
   });
 
+  it("a human placing an agent's pending candidate (id rename) implicitly accepts it", () => {
+    const t = threeDayTrip();
+    t.actions.addResolvedStop("agent", P("B"), {}); // candidate c1, pending e1
+    expect(t.store.getState().stops.c1.pending).toBe("e1");
+    const r = t.actions.moveStop("human", "c1", 1);
+    const sid = "sid" in r ? r.sid : "";
+    const s = t.store.getState();
+    expect(s.stops[sid].pending).toBeUndefined();
+    expect(editStatus(s, "e1")?.fate).toBe("accepted");
+    // the agent can no longer pull the stop the human placed
+    expect(t.actions.revert("agent", "e1")).toHaveProperty("error");
+    expect(t.store.getState().days[0].stops).toEqual([sid]);
+  });
+
   it("accept(editId) clears marks; acceptAll clears everything", () => {
     const t = threeDayTrip();
     t.actions.addResolvedStop("agent", P("B"), { day: 1 });
@@ -107,6 +121,18 @@ describe("pending model (ADR-0004)", () => {
     expect(s.days[0].stops).toEqual([]);
     expect(s.stops.s1).toBeUndefined();
     expect(editStatus(s, "e1")?.fate).toBe("reverted");
+  });
+
+  it("an agent's own revert entry is not a revertable edit (no silent redo)", () => {
+    const t = threeDayTrip();
+    t.actions.addResolvedStop("agent", P("B"), { day: 1 }); // e1
+    t.actions.revert("agent", "e1"); // logs e2 as the revert event
+    const s = t.store.getState();
+    expect(s.log[s.log.length - 1].editId).toBe("e2");
+    expect(editStatus(s, "e2")).toBeNull();
+    const r = t.actions.revert("agent", "e2");
+    expect("error" in r && r.error).toContain("no edit e2");
+    expect(t.store.getState().days[0].stops).toEqual([]);
   });
 
   it("revert of a fully accepted edit errors and changes nothing", () => {

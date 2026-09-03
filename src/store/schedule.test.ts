@@ -87,6 +87,14 @@ describe("computeDaySchedule", () => {
     expect(d.stops[0].legIn?.minutes).toBeGreaterThan(0);
   });
 
+  it("a covered pair keeps its real time while the set is stale; only uncovered legs are ≈", () => {
+    const t = tripWithMatrix();
+    t.store.setState({ matrices: { ...t.store.getState().matrices, stale: true } });
+    const d = computeDaySchedule(t.store.getState(), 1);
+    expect(d.stops[1].legIn?.approx).toBe(false);
+    expect(d.approx).toBe(false);
+  });
+
   it("free time at day start and after stops shifts the clock", () => {
     const t = tripWithMatrix();
     t.actions.setDayFreeStart("human", 1, 30);

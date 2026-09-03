@@ -113,6 +113,19 @@ describe("move_stop", () => {
   });
 });
 
+describe("stop ids in the form get_itinerary prints them", () => {
+  it("accepts [s2], S1 and padded ids across move_stop, set_times and set_leg_mode", async () => {
+    const { trip, tools } = fakeDeps();
+    trip.actions.ensureDays("human", 2);
+    await tools.add_place.execute({ name: "Senso-ji", day: 1 });
+    await tools.add_place.execute({ name: "Meiji Shrine", day: 1, position: 2 });
+    expect(await tools.set_leg_mode.execute({ day: 1, fromStop: "[s1]", mode: "drive" })).toMatch(/^Leg \[s1\]->\[s2\] drive/);
+    expect(await tools.set_times.execute({ day: 1, stop: "[S1]", dwellMinutes: 30 })).toMatch(/^\[s1\] dwell 60 -> 30/);
+    expect(await tools.move_stop.execute({ stop: " [s2] ", day: 2 })).toMatch(/^Moved \[s2\]: D1 pos2 -> D2 pos1/);
+    expect(await tools.move_stop.execute({ stop: "[s99]", day: 2 })).toBe("ERROR: no stop [s99] — ids come from get_itinerary.");
+  });
+});
+
 describe("set_times", () => {
   async function seeded() {
     const { trip, tools } = fakeDeps();
