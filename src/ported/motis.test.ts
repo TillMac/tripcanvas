@@ -32,6 +32,14 @@ describe("parseMotisItinerary", () => {
     expect(s.color).toBe("ff9500");
     expect(s.coords).toEqual([[35.7118,139.7761],[35.6937,139.7709],[35.6715,139.7654]]);
   });
+  it("line prefers routeLongName, falls back to routeShortName", () => {
+    const mk = (routeShortName: string, routeLongName: string) => ({
+      itineraries: [{ duration: 600, legs: [{ mode: "SUBWAY", duration: 600, from: {}, to: {}, routeShortName, routeLongName }] }],
+    });
+    expect(parseMotisItinerary(mk("Z", "Tokyo Metro Hanzomon Line"))!.steps[0].line).toBe("Tokyo Metro Hanzomon Line");
+    expect(parseMotisItinerary(mk("Asakusa Line", ""))!.steps[0].line).toBe("Asakusa Line");
+    expect(parseMotisItinerary(mk("", ""))!.steps[0].line).toBeNull();
+  });
   it("no itineraries -> null", () => {
     expect(parseMotisItinerary({ itineraries: [] })).toBeNull();
   });
@@ -75,5 +83,6 @@ describe("motisPlanUrl", () => {
     expect(u).toContain("fromPlace=35.71,139.77,0&");
     expect(u).toContain("toPlace=35.62,139.79,0&");
     expect(u).toContain("api.transitous.org");
+    expect(u.endsWith("&language=en")).toBe(true);
   });
 });

@@ -7,12 +7,12 @@ import type { ResolveResult } from "../store/nominatim.js";
 
 const P = (name: string, lat: number, lon: number): PlaceInput => ({ name, lat, lon, query: name.toLowerCase() });
 
-function fakeDeps() {
+function fakeDeps(fetchTransit: ToolDeps["fetchTransit"] = async () => null) {
   const trip = createTripStore();
   const deps: ToolDeps = {
     trip,
     matrix: { ensureFresh: async () => {} },
-    fetchTransit: async () => null,
+    fetchTransit,
     nominatim: {
       resolve: async (q): Promise<ResolveResult> => ({
         ok: true,
@@ -25,8 +25,8 @@ function fakeDeps() {
   return { trip, tools };
 }
 
-function seeded() {
-  const x = fakeDeps();
+function seeded(fetchTransit?: ToolDeps["fetchTransit"]) {
+  const x = fakeDeps(fetchTransit);
   x.trip.actions.ensureDays("human", 3);
   x.trip.actions.addResolvedStop("human", P("Senso-ji", 35.714, 139.796), { day: 1 });
   x.trip.actions.addResolvedStop("human", P("Ueno Park", 35.712, 139.771), { day: 1, position: 2 });
@@ -160,5 +160,76 @@ describe("revert_pending", () => {
     expect(out).toMatch(/2 of 3 stops reverted; \[s\d\] was accepted by the human and stays\./);
     const s = trip.store.getState();
     expect(s.days[0].stops).toEqual([sid]);
+  });
+});
+
+describe("get_leg_options", () => {
+  const withTransit: ToolDeps["fetchTransit"] = async () => ({
+    totalMin: 51,
+    transfers: 1,
+    steps: [
+      { mode: "transit", line: "Ginza Line", color: null, headsign: "Shibuya", durationMin: 30, fromName: "Asakusa", toName: "Ueno", coords: [] },
+      { mode: "walk", line: null, color: null, headsign: null, durationMin: 3, fromName: "Ueno", toName: "Ueno Park", coords: [] },
+    ],
+  });
+
+  /** Cover the s1->s2 pair with routed times so both numbers are exact. */
+  function withMatrices(trip: ReturnType<typeof seeded>["trip"]) {
+    const s = trip.store.getState();
+    const [a, b] = s.days[0].stops.map((sid) => s.stops[sid].place);
+    trip.store.setState({
+      matrices: { ids: [a, b], walk: [[0, 78 * 60], [78 * 60, 0]], drive: [[0, 21 * 60], [21 * 60, 0]], forHash: "x", stale: false },
+    });
+  }
+
+  it("compares all three modes and changes nothing", async () => {
+    const { trip, tools } = seeded(withTransit);
+    withMatrices(trip);
+    const before = trip.store.getState();
+    const out = (await tools.get_leg_options.execute({ day: 1, fromStop: "s1" })) as string;
+    expect(out).toContain("walk 78 min");
+    expect(out).toContain("drive 21 min");
+    expect(out).toContain("transit 51 min, 1 transfer");
+    expect(out).toContain("Ginza Line toward Shibuya, off at Ueno");
+    expect(out).toContain("Current: drive");
+    expect(out.length).toBeLessThanOrEqual(1500);
+    const after = trip.store.getState();
+    expect(after.rev).toBe(before.rev);
+    expect(after.log.length).toBe(before.log.length);
+    expect(after.legOverrides).toEqual(before.legOverrides);
+  });
+
+  it("says so when no transit route comes back", async () => {
+    const { tools } = seeded(); // fetchTransit returns null
+    const out = (await tools.get_leg_options.execute({ day: 1, fromStop: "s1" })) as string;
+    expect(out).toContain("transit: no route found");
+    expect(out).toMatch(/walk ~\d+ min · drive ~\d+ min/); // no matrices -> estimates
+  });
+
+  it("'lodging' names the day's first leg; a day without lodging errors", async () => {
+    const { tools } = seeded(withTransit);
+    const out = (await tools.get_leg_options.execute({ day: 1, fromStop: "lodging" })) as string;
+    expect(out).toMatch(/^Leg lodging->\[s1\] Hotel Gracery -> Senso-ji, /);
+
+    const bare = fakeDeps();
+    bare.trip.actions.ensureDays("human", 1);
+    bare.trip.actions.addResolvedStop("human", P("Senso-ji", 35.714, 139.796), { day: 1 });
+    bare.trip.actions.addResolvedStop("human", P("Ueno Park", 35.712, 139.771), { day: 1, position: 2 });
+    expect(await bare.tools.get_leg_options.execute({ day: 1, fromStop: "lodging" })).toBe(
+      "ERROR: day 1 has no lodging — its first leg does not exist.",
+    );
+  });
+
+  it("unknown stop, out-of-range day and last-stop legs error like set_leg_mode", async () => {
+    const { tools } = seeded();
+    expect(await tools.get_leg_options.execute({ day: 1, fromStop: "s99" })).toBe(
+      "ERROR: no stop [s99] on day 1 — ids come from get_itinerary.",
+    );
+    expect(await tools.get_leg_options.execute({ day: 9, fromStop: "s1" })).toBe(
+      "ERROR: day 9 out of range (trip has 3).",
+    );
+    expect(await tools.get_leg_options.execute({ day: 1, fromStop: "s2" })).toContain(
+      "is the last stop of D1",
+    );
   });
 });

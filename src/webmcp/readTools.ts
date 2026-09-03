@@ -4,9 +4,11 @@
 // still-pending edits only.
 import { z } from "zod";
 import { changesPage, renderAgentView } from "../store/handback.js";
+import { legInfo, legKm, modeMinutes } from "../store/schedule.js";
 import { editStatus, pendingEdits } from "../store/store.js";
+import { legFromStop, transitSteps } from "../store/transit.js";
 import type { RegisterToolOptions } from "./modelContext.js";
-import { err, wrap } from "./result.js";
+import { err, sidArg, wrap, zodErr } from "./result.js";
 import type { ToolDeps } from "./tools.js";
 
 export function buildReadTools(deps: ToolDeps): RegisterToolOptions[] {
@@ -54,6 +56,43 @@ export function buildReadTools(deps: ToolDeps): RegisterToolOptions[] {
       const page = changesPage(s, p.data.since ?? s.lastAgentReadRev);
       trip.actions.advanceAgentRead(page.readTo);
       return page.text;
+    }),
+  };
+
+  const getLegOptions: RegisterToolOptions = {
+    name: "get_leg_options",
+    description:
+      "Compare one leg by walk, drive and transit in a single read, before committing to a mode. Name the leg by the stop it departs from ([s#] id; 'lodging' for a day's first leg). Transit is fetched live, so this takes a few seconds; '~' marks an estimated number. Nothing changes — the leg keeps its current mode; use set_leg_mode to apply the one you pick.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        day: { type: "number", minimum: 1, description: "Day 1..N containing the leg." },
+        fromStop: { type: "string", description: "[s#] id the leg departs from, or 'lodging' for the day's first leg." },
+      },
+      required: ["day", "fromStop"],
+    },
+    annotations: { readOnlyHint: true, untrustedContentHint: true },
+    execute: wrap(async (args) => {
+      const p = z.object({ day: z.number().int().min(1), fromStop: sidArg }).safeParse(args);
+      if (!p.success) return zodErr(p.error);
+      const t = legFromStop(state(), p.data.day, p.data.fromStop);
+      if ("error" in t) return err(t.error);
+      // A read must still answer when a service is down: fall back to estimates.
+      await deps.matrix.ensureFresh().catch(() => {});
+      const s = state();
+      const from = s.places[t.fromPid];
+      const to = s.places[t.toPid];
+      const mins = (m: { minutes: number; approx: boolean }) => `${m.approx ? "~" : ""}${m.minutes} min`;
+      const leg = await deps.fetchTransit(from, to).catch(() => null);
+      const transit = leg
+        ? `transit ${leg.totalMin} min, ${leg.transfers} transfer${leg.transfers === 1 ? "" : "s"}` +
+          (transitSteps(leg) ? `: ${transitSteps(leg)}` : "")
+        : "transit: no route found";
+      const out =
+        `Leg ${t.fromLabel}->[${t.toSid}] ${from.name} -> ${to.name}, ${legKm(s, t.fromPid, t.toPid).toFixed(1)} km. ` +
+        `walk ${mins(modeMinutes(s, "walk", t.fromPid, t.toPid))} · drive ${mins(modeMinutes(s, "drive", t.fromPid, t.toPid))} · ${transit}. ` +
+        `Current: ${legInfo(s, t.fromPid, t.toPid).mode}. Nothing changed — use set_leg_mode to switch.`;
+      return out.length > 1500 ? out.slice(0, 1490) + "…" : out;
     }),
   };
 
@@ -112,5 +151,5 @@ export function buildReadTools(deps: ToolDeps): RegisterToolOptions[] {
     }),
   };
 
-  return [getItinerary, getChanges, revertPending];
+  return [getItinerary, getChanges, getLegOptions, revertPending];
 }

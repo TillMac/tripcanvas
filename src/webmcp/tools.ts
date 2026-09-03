@@ -7,7 +7,7 @@ import { fmtHHMM } from "../ported/schedule-ops.js";
 import type { PlaceCandidate } from "../ported/place-assert.js";
 import { runArrange } from "../store/arrange.js";
 import { planTrip } from "../store/plan.js";
-import { applyTransitLeg, legTarget, type FetchTransit } from "../store/transit.js";
+import { applyTransitLeg, legFromStop, transitSteps, type FetchTransit } from "../store/transit.js";
 import { computeDaySchedule } from "../store/schedule.js";
 import type { createTripStore } from "../store/store.js";
 import type { ResolveResult } from "../store/nominatim.js";
@@ -32,13 +32,10 @@ export interface ToolDeps {
   fetchTransit: FetchTransit;
 }
 
-import { err, wrap, zodErr } from "./result.js";
+import { err, sidArg, wrap, zodErr } from "./result.js";
 import { toPlaceInput } from "../store/nominatim.js";
 import { legKey } from "../store/schedule.js";
 import { DEFAULT_DWELL_MIN } from "../store/store.js";
-
-/** Stop-id argument: get_itinerary prints ids as `[s3]`, so accept "s3", "[s3]" or "S3". */
-const sidArg = z.string().min(1).transform((x) => x.trim().replace(/^\[|\]$/g, "").toLowerCase());
 
 // ── formatting helpers ─────────────────────────────────────────────────────
 function resolvedLabel(place: PlaceCandidate): string {
@@ -323,43 +320,22 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
       if (!p.success) return zodErr(p.error);
       const s = state();
       const { day } = p.data;
-      if (day < 1 || day > s.days.length) return err(`day ${day} out of range (trip has ${s.days.length}).`);
-      const d = s.days[day - 1];
-      if (d.stops.length === 0) return err(`day ${day} has no stops.`);
-      let toSid: string;
-      if (p.data.fromStop === "lodging") {
-        toSid = d.stops[0];
-        if (!s.nights[day - 1]) return err(`day ${day} has no lodging — its first leg does not exist.`);
-      } else {
-        const resolved = d.stops.find((x) => x === p.data.fromStop) ?? null;
-        if (!resolved) return err(`no stop [${p.data.fromStop}] on day ${day} — ids come from get_itinerary.`);
-        const i = d.stops.indexOf(resolved);
-        if (i === d.stops.length - 1) {
-          return err(`[${resolved}] is the last stop of D${day} — its leg is the return to lodging; use fromStop [${resolved}] only if a next stop exists.`);
-        }
-        toSid = d.stops[i + 1];
-      }
+      const t = legFromStop(s, day, p.data.fromStop);
+      if ("error" in t) return err(t.error);
+      const toSid = t.toSid;
 
       if (p.data.mode === "transit") {
         const r = await applyTransitLeg(trip, deps.fetchTransit, "agent", day, toSid);
         if (!r.ok) return r.message;
         const s2 = state();
         const e = lastEditId(s2);
-        const steps = r.leg.steps
-          .map((st) =>
-            st.mode === "walk"
-              ? `walk ${st.durationMin}m to ${st.toName}`
-              : `${st.line ?? "line"}${st.headsign ? ` toward ${st.headsign}` : ""}, off at ${st.toName}`,
-          )
-          .join("; ");
+        const steps = transitSteps(r.leg);
         let out = `Leg ${r.target.fromLabel}->[${toSid}] transit ${r.leg.totalMin}m, ${r.leg.transfers} transfer${r.leg.transfers === 1 ? "" : "s"} [pending ${e}]`;
         if (steps) out += `: ${steps}`;
         out += `. ${endsPhrase(s2, day)}.`;
         return out.length > 1500 ? out.slice(0, 1490) + "…" : out;
       }
 
-      const t = legTarget(s, day, toSid);
-      if ("error" in t) return err(t.error);
       trip.actions.setLegOverride(
         "agent",
         legKey(t.fromPid, t.toPid),

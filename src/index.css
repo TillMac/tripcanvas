@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Mute the OSM tiles only — markers, routes and popups keep full colour. */
+.leaflet-tile-pane { filter: grayscale(0.55) saturate(0.6) contrast(0.95); }
+
 /* Agent-pending pins pulse — motion survives video compression. */
 @keyframes tc-pulse {
   0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }

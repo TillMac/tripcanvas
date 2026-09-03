@@ -171,7 +171,7 @@ export default function App({ agentAvailable }: { agentAvailable: boolean }) {
         </h1>
         {agentAvailable && (
           <span className="flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-            ● WebMCP ready · 11 tools
+            ● WebMCP ready · 12 tools
           </span>
         )}
         <SearchBox activeDay={day} />

@@ -17,6 +17,7 @@ Skeleton: Design B (demo) store contract with by-id inverses and [s#]/[c#] addre
 | 9 | arrange_days | false | false | Recluster + reorder whole trip; same function as the human button |
 | 10 | revert_pending | false | false | Agent cleans up its own unaccepted edits only |
 | 11 | get_planning_guide | true | false | Static planning judgment: dwell by kind, pacing, meals, closed-day cautions |
+| 12 | get_leg_options | true | true | Read-only walk/drive/transit comparison for ONE leg; changes nothing |
 
 Names: all ≤14 chars, `[a-z_]`. Descriptions measured 330–486 chars. Every `execute` returns a string; failures are explanatory `ERROR: ...` strings; tools are never unregistered.
 
@@ -105,8 +106,15 @@ Pacing: 3-5 stops/day is comfortable; arrange caps 5 per day (extras become cand
 Meals: the page never schedules meals. Add free time 60-90 min around 12:00-13:30 and 18:00-20:00 with set_times freeMinutesAfter, or add a restaurant as a stop.
 Closed days: the page does NOT check opening hours — use your own knowledge (e.g. many Tokyo museums close Mondays) and warn the human when unsure.
 Legs default to walk <=1.2 km, drive above; suggest transit via set_leg_mode where it beats driving.
+Compare a leg's walk/drive/transit with get_leg_options before switching.
 After the human edits the map, re-read get_itinerary before building on your own edits.
 ```
+**get_leg_options** — readOnlyHint: true, untrustedContentHint: true (MOTIS line/headsign text)
+> Compare one leg by walk, drive and transit in a single read, before committing to a mode. Name the leg by the stop it departs from ([s#] id; 'lodging' for a day's first leg). Transit is fetched live, so this takes a few seconds; '~' marks an estimated number. Nothing changes — the leg keeps its current mode; use set_leg_mode to apply the one you pick. *(353)*
+
+- inputSchema: `{ day: number "Day 1..N containing the leg.", fromStop: string "[s#] id the leg departs from, or 'lodging' for the day's first leg." }`
+- result: `Leg [s2]->[s3] Shibuya Crossing -> Senso-ji, 6.1 km. walk ~78 min · drive 21 min · transit 51 min, 1 transfer: Ginza Line toward Shibuya, off at Tawaramachi; walk 3m to Asakusa. Current: drive. Nothing changed — use set_leg_mode to switch.` No transit itinerary: `transit: no route found`. Errors are set_leg_mode's, same `fromStop` addressing (shared `legFromStop`): `ERROR: no stop [s99] on day 1 — ids come from get_itinerary.` / `ERROR: day 1 has no lodging — its first leg does not exist.` / `ERROR: [s4] is the last stop of D2 — ...`. Reads only: no override stored, no rev/log entry, and the read cursor does NOT advance (it is not a state handback).
+
 Rationale (owner decision, 2026-08-31): judgment rules the code cannot own travel through the agent's parameters; this tool is where the agent learns that judgment — the WebMCP-native replacement for the predecessor's skill-prompt.
 
 ## 3) plan_trip flow + timing math

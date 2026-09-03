@@ -67,6 +67,37 @@ export function legTarget(s: TripState, day: number, toSid: Sid): TransitLegTarg
   return { fromPid: s.stops[fromSid].place, toPid: s.stops[toSid].place, toSid, fromLabel: `[${fromSid}]` };
 }
 
+/** The one step rendering for agent results:
+ *  "walk 4m to Ueno Sta; Ginza Line toward Shibuya, off at Tawaramachi". */
+export function transitSteps(leg: TransitLeg): string {
+  return leg.steps
+    .map((st) =>
+      st.mode === "walk"
+        ? `walk ${st.durationMin}m to ${st.toName}`
+        : `${st.line ?? "line"}${st.headsign ? ` toward ${st.headsign}` : ""}, off at ${st.toName}`,
+    )
+    .join("; ");
+}
+
+/** Resolve the leg named by the stop it DEPARTS from — `[s#]`, or 'lodging'
+ *  for the day's first leg. The one addressing shared by set_leg_mode and
+ *  get_leg_options; errors are the wording those tools return. */
+export function legFromStop(s: TripState, day: number, fromStop: Sid): TransitLegTarget | { error: string } {
+  if (day < 1 || day > s.days.length) return { error: `day ${day} out of range (trip has ${s.days.length}).` };
+  const d = s.days[day - 1];
+  if (d.stops.length === 0) return { error: `day ${day} has no stops.` };
+  if (fromStop === "lodging") {
+    if (!s.nights[day - 1]) return { error: `day ${day} has no lodging — its first leg does not exist.` };
+    return legTarget(s, day, d.stops[0]);
+  }
+  const i = d.stops.indexOf(fromStop);
+  if (i < 0) return { error: `no stop [${fromStop}] on day ${day} — ids come from get_itinerary.` };
+  if (i === d.stops.length - 1) {
+    return { error: `[${fromStop}] is the last stop of D${day} — its leg is the return to lodging; use fromStop [${fromStop}] only if a next stop exists.` };
+  }
+  return legTarget(s, day, d.stops[i + 1]);
+}
+
 export type ApplyTransitResult =
   | { ok: true; leg: TransitLeg; target: TransitLegTarget }
   | { ok: false; message: string };

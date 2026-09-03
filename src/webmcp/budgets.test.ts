@@ -10,7 +10,7 @@ const P = (name: string, lat: number, lon: number): PlaceInput => ({ name, lat, 
 const ALL_TOOLS = [
   "get_itinerary", "get_changes", "plan_trip", "add_place", "move_stop",
   "set_times", "set_leg_mode", "set_lodging", "arrange_days", "revert_pending",
-  "get_planning_guide",
+  "get_planning_guide", "get_leg_options",
 ];
 
 function servicesDownDeps() {
@@ -27,7 +27,7 @@ function servicesDownDeps() {
 describe("budget audit (design §1: 30 / 500 / 150 / ~1,500)", () => {
   const { tools } = servicesDownDeps();
 
-  it("exactly the eleven designed tools are registered", () => {
+  it("exactly the twelve designed tools are registered", () => {
     expect(Object.keys(tools).sort()).toEqual([...ALL_TOOLS].sort());
   });
 

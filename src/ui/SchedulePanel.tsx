@@ -85,7 +85,7 @@ function TransitSteps({ leg }: { leg: LegInfo }) {
         step.mode === "walk" ? (
           <div key={i} className="text-slate-500">{"\u{1F6B6}"} walk {step.durationMin} min → {step.toName}</div>
         ) : (
-          <div key={i} className="flex items-center gap-1">
+          <div key={i} className="flex flex-wrap items-center gap-1">
             <span style={{ background: step.color ? `#${step.color}` : "#94a3b8", color: "#fff", borderRadius: 4, padding: "0 6px" }}>
               {step.line}
             </span>
@@ -111,7 +111,7 @@ function StopRow({
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       onClick={() => onSelect(sid)}
-      className={`flex items-center justify-between rounded-lg border px-3 py-2 text-xs text-slate-800 ${
+      className={`flex items-start justify-between rounded-lg border px-3 py-2 text-xs text-slate-800 ${
         pending
           ? "border-amber-400 border-l-4 border-l-amber-500 bg-amber-100"
           : selected
@@ -122,7 +122,7 @@ function StopRow({
       <span {...attributes} {...listeners} className="flex min-w-0 flex-1 items-baseline gap-2 cursor-grab">
         <span className="w-[86px] shrink-0 text-[11px] font-semibold tabular-nums text-slate-500">{arrive}–{depart}</span>
         <span className="shrink-0 font-mono text-[10px] text-slate-400">[{sid}]</span>
-        <span className="truncate text-[13px] font-medium text-slate-900">{name}</span>
+        <span title={name} className="min-w-0 whitespace-normal break-words text-[13px] font-medium text-slate-900">{name}</span>
         {pending && (
           <span
             title={`pending agent edit ${pending} — edit to accept, or use the bar above`}

@@ -55,20 +55,30 @@ function matrixMinutes(s: TripState, mode: "walk" | "drive", a: Pid, b: Pid): nu
   return sec == null ? null : Math.round(sec / 60);
 }
 
-export function legInfo(s: TripState, fromPid: Pid, toPid: Pid): LegInfo {
+/** Straight-line km between two places. */
+export function legKm(s: TripState, fromPid: Pid, toPid: Pid): number {
   const pa = s.places[fromPid];
   const pb = s.places[toPid];
-  const km = haversineKm({ lat: pa.lat, lng: pa.lon }, { lat: pb.lat, lng: pb.lon });
+  return haversineKm({ lat: pa.lat, lng: pa.lon }, { lat: pb.lat, lng: pb.lon });
+}
+
+/** Minutes for a pair in one mode, ignoring any override: matrix when the pair
+ *  is covered, else haversine × mode speed marked approximate. */
+export function modeMinutes(s: TripState, mode: LegMode, fromPid: Pid, toPid: Pid): { minutes: number; approx: boolean } {
+  const lookup = mode === "transit" ? null : matrixMinutes(s, mode, fromPid, toPid);
+  // A covered pair is a real routed time even while the set is being refreshed.
+  if (lookup != null) return { minutes: lookup, approx: false };
+  const km = legKm(s, fromPid, toPid);
+  return { minutes: mode === "drive" ? Math.round((km / DRIVE_KMH) * 60) : estimateMinutes(km), approx: true };
+}
+
+export function legInfo(s: TripState, fromPid: Pid, toPid: Pid): LegInfo {
   const override = s.legOverrides[legKey(fromPid, toPid)];
-  const mode: LegMode = override?.mode ?? (km <= WALK_MAX_KM ? "walk" : "drive");
+  const mode: LegMode = override?.mode ?? (legKm(s, fromPid, toPid) <= WALK_MAX_KM ? "walk" : "drive");
   if (mode === "transit" && override?.transit) {
     return { fromPid, toPid, mode, minutes: override.transit.totalMin, approx: false, transit: override.transit };
   }
-  const lookup = mode === "transit" ? null : matrixMinutes(s, mode, fromPid, toPid);
-  // A covered pair is a real routed time even while the set is being refreshed.
-  if (lookup != null) return { fromPid, toPid, mode, minutes: lookup, approx: false };
-  const minutes = mode === "drive" ? Math.round((km / DRIVE_KMH) * 60) : estimateMinutes(km);
-  return { fromPid, toPid, mode, minutes, approx: true };
+  return { fromPid, toPid, mode, ...modeMinutes(s, mode, fromPid, toPid) };
 }
 
 /** The pid sequence a day travels: [start anchor?, ...stops, end anchor?]. */

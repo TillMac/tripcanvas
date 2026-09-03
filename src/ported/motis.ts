@@ -7,8 +7,10 @@ export interface TransitLeg { totalMin: number; transfers: number; steps: Transi
 
 // Coordinates carry a ",0" level suffix — required by the MOTIS API since the
 // port source was written (T2 acceptance criterion, verified 2026-08-31).
+// &language=en makes GTFS stop/route/headsign names come back in English
+// (verified live 2026-09-04: "渋谷 Shibuya" -> "Shibuya").
 export function motisPlanUrl(fromLat: number, fromLng: number, toLat: number, toLng: number, timeISO: string): string {
-  return `https://api.transitous.org/api/v1/plan?fromPlace=${fromLat},${fromLng},0&toPlace=${toLat},${toLng},0&time=${encodeURIComponent(timeISO)}`;
+  return `https://api.transitous.org/api/v1/plan?fromPlace=${fromLat},${fromLng},0&toPlace=${toLat},${toLng},0&time=${encodeURIComponent(timeISO)}&language=en`;
 }
 
 export function parseMotisItinerary(res: unknown): TransitLeg | null {
@@ -22,7 +24,7 @@ export function parseMotisItinerary(res: unknown): TransitLeg | null {
     if (typeof leg.to?.lat === "number") coords.push([leg.to.lat, leg.to.lon]);
     return {
       mode: isWalk ? "walk" : "transit",
-      line: isWalk ? null : (leg.routeShortName ?? null),
+      line: isWalk ? null : (leg.routeLongName || leg.routeShortName || null),
       color: isWalk ? null : (leg.routeColor ?? null),
       headsign: isWalk ? null : (leg.headsign ?? null),
       durationMin: Math.round((leg.duration ?? 0) / 60),

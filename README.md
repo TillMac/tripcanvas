@@ -5,7 +5,7 @@ One shared multi-day trip itinerary on a live map, edited by a **human** and a
 [WebMCP Challenge](https://webmcp.devpost.com/).
 
 The human drags stops, tunes times, and searches places directly on the
-canvas. The agent plans, fills gaps, and fetches transit through **eleven
+canvas. The agent plans, fills gaps, and fetches transit through **twelve
 WebMCP tools** that mutate the exact same store. Agent edits land immediately
 but **pending** — highlighted on the map with per-edit revert and accept-all —
 and the agent can read back what the human changed since it last looked.
@@ -19,7 +19,7 @@ and the agent can read back what the human changed since it last looked.
      `document.modelContext` is there in stock Chrome. To be safe (or on
      another origin), enable `chrome://flags/#enable-webmcp-testing` and
      restart. `chrome://flags/#devtools-webmcp-support` adds a
-     **DevTools → Application → WebMCP** panel that lists the 11 tools and
+     **DevTools → Application → WebMCP** panel that lists the 12 tools and
      lets you run any of them by hand.
    - **ChatGPT desktop app**, built-in browser (`Cmd+Shift+B`) with
      GPT-5.6 Sol or Terra and **Settings → Browser → Permissions → Enable
@@ -90,9 +90,10 @@ searching, and undoing on the same canvas.
   unregistration, feature-detected exactly as OpenAI's docs show
   (`typeof document.modelContext?.registerTool === "function"`); without
   WebMCP the page runs as a plain manual planner with a notice.
-- **Eleven tools** (`get_itinerary`, `get_changes`, `plan_trip`, `add_place`,
-  `move_stop`, `set_times`, `set_leg_mode`, `set_lodging`, `arrange_days`,
-  `revert_pending`, `get_planning_guide`), all inside Chrome's recommended
+- **Twelve tools** (`get_itinerary`, `get_changes`, `get_leg_options`,
+  `plan_trip`, `add_place`, `move_stop`, `set_times`, `set_leg_mode`,
+  `set_lodging`, `arrange_days`, `revert_pending`, `get_planning_guide`),
+  all inside Chrome's recommended
   budgets (names ≤30, descriptions ≤500, param descriptions ≤150, results
   ≤1,500 chars — enforced by an automated audit test). `readOnlyHint` on the
   read tools; `untrustedContentHint` marks exactly the tools whose results
