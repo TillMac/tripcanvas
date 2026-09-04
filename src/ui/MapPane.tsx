@@ -47,7 +47,7 @@ function iconFor(m: MapMarker): L.DivIcon {
   if (m.kind === "candidate") {
     return L.divIcon({
       className: "",
-      html: `<div style="width:26px;height:26px;background:#fef3c7;border:2px solid #f59e0b;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#92400e;${sel}box-shadow:0 1px 4px rgba(0,0,0,.35);">c</div>`,
+      html: `<div style="width:26px;height:26px;background:#fef3c7;border:2px solid #f59e0b;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;letter-spacing:-.02em;color:#92400e;${sel}box-shadow:0 1px 4px rgba(0,0,0,.35);">${m.id}</div>`,
       iconSize: [26, 26],
       iconAnchor: [13, 13],
     });
