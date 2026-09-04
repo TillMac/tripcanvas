@@ -62,12 +62,12 @@ export function buildReadTools(deps: ToolDeps): RegisterToolOptions[] {
   const getLegOptions: RegisterToolOptions = {
     name: "get_leg_options",
     description:
-      "Compare one leg by walk, drive and transit in a single read, before committing to a mode. Name the leg by the stop it departs from ([s#] id; 'lodging' for a day's first leg). Transit is fetched live, so this takes a few seconds; '~' marks an estimated number. Nothing changes — the leg keeps its current mode; use set_leg_mode to apply the one you pick.",
+      "Compare one leg by walk, drive and transit in a single read, before committing to a mode. Name the leg by the stop it departs from ([s#] id; 'lodging' for a day's first leg; the day's last stop names the return to lodging). Transit is fetched live, so this takes a few seconds; '~' marks an estimated number. Nothing changes — the leg keeps its current mode; use set_leg_mode to apply the one you pick.",
     inputSchema: {
       type: "object",
       properties: {
         day: { type: "number", minimum: 1, description: "Day 1..N containing the leg." },
-        fromStop: { type: "string", description: "[s#] id the leg departs from, or 'lodging' for the day's first leg." },
+        fromStop: { type: "string", description: "[s#] id the leg departs from ('lodging' = day's first leg; the last stop = return to lodging)." },
       },
       required: ["day", "fromStop"],
     },
@@ -89,7 +89,7 @@ export function buildReadTools(deps: ToolDeps): RegisterToolOptions[] {
           (transitSteps(leg) ? `: ${transitSteps(leg)}` : "")
         : "transit: no route found";
       const out =
-        `Leg ${t.fromLabel}->[${t.toSid}] ${from.name} -> ${to.name}, ${legKm(s, t.fromPid, t.toPid).toFixed(1)} km. ` +
+        `Leg ${t.fromLabel}->${t.toLabel} ${from.name} -> ${to.name}, ${legKm(s, t.fromPid, t.toPid).toFixed(1)} km. ` +
         `walk ${mins(modeMinutes(s, "walk", t.fromPid, t.toPid))} · drive ${mins(modeMinutes(s, "drive", t.fromPid, t.toPid))} · ${transit}. ` +
         `Current: ${legInfo(s, t.fromPid, t.toPid).mode}. Nothing changed — use set_leg_mode to switch.`;
       return out.length > 1500 ? out.slice(0, 1490) + "…" : out;

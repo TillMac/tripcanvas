@@ -343,7 +343,7 @@ export function createTripStore(deps: TripStoreDeps = {}) {
       return { prev };
     },
 
-    /** Override the leg arriving at toSid (pair-keyed from the stop/lodging before it). */
+    /** Override one leg by pair key; markSid is the stop that carries the agent's pending mark. */
     setLegOverride(
       actor: Actor,
       key: string,

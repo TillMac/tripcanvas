@@ -4,7 +4,7 @@
 // top of this body; renderHumanTrip (below) is the people-facing variant the
 // Copy button uses.
 import { fmtHHMM } from "../ported/schedule-ops.js";
-import { computeDaySchedule, tripWarnings, type LegInfo } from "./schedule.js";
+import { computeDaySchedule, legKey, tripWarnings, type LegInfo } from "./schedule.js";
 import { editStatus, pendingEdits } from "./store.js";
 import type { Sid, TripState } from "./types.js";
 
@@ -21,12 +21,15 @@ function lodgingLabel(s: TripState): string {
   return `Lodging: ${parts.join("; ")}.`;
 }
 
-/** Is this stop's pending edit a leg-mode change (star the leg, not the name)? */
-function pendingKind(s: TripState, sid: Sid): "leg" | "stop" | null {
+/** This stop's pending edit: "stop" stars the name; a leg-mode change stars
+ *  the leg whose pair key it set (the arriving leg, or the return to lodging). */
+function pendingKind(s: TripState, sid: Sid): "stop" | { legKey: string } | null {
   const e = s.stops[sid]?.pending;
   if (!e) return null;
   const entry = s.log.find((x) => x.editId === e && x.actor === "agent");
-  return entry?.op === "leg" ? "leg" : "stop";
+  if (entry?.op !== "leg") return "stop";
+  const op = entry.ops.find((o): o is Extract<typeof o, { t: "setLeg" }> => o.t === "setLeg");
+  return op ? { legKey: op.key } : "stop";
 }
 
 export function renderDayBlock(s: TripState, day: number): string[] {
@@ -40,11 +43,12 @@ export function renderDayBlock(s: TripState, day: number): string[] {
     const stop = s.stops[st.sid];
     const place = s.places[stop.place];
     const pk = pendingKind(s, st.sid);
+    const starred = (l: LegInfo) => typeof pk === "object" && pk?.legKey === legKey(l.fromPid, l.toPid);
     let line = `[${st.sid}] ${place.name}${pk === "stop" ? "*" : ""} ${fmtHHMM(st.arriveMin)}-${fmtHHMM(st.departMin)} d${stop.dwellMin}`;
-    if (st.legIn) line += ` ${legToken(st.legIn, pk === "leg")}`;
+    if (st.legIn) line += ` ${legToken(st.legIn, starred(st.legIn))}`;
     const last = i === sched.stops.length - 1;
     if (last) {
-      if (sched.backLeg) line += ` back ${sched.backLeg.mode}${sched.backLeg.approx ? "≈" : ""}${sched.backLeg.minutes}`;
+      if (sched.backLeg) line += ` back ${sched.backLeg.mode}${sched.backLeg.approx ? "≈" : ""}${sched.backLeg.minutes}${starred(sched.backLeg) ? "*" : ""}`;
       line += ` — ends ${fmtHHMM(sched.endMin)}`;
     }
     lines.push(line);

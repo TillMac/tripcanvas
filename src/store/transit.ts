@@ -2,7 +2,7 @@
 // it as a pair-keyed override — the same path for the human's cycle button and
 // the agent's set_leg_mode. Retry once; failure keeps the leg's old mode.
 import { motisPlanUrl, parseMotisItinerary, withDestinationName, type TransitLeg } from "../ported/motis.js";
-import { computeDaySchedule, legKey } from "./schedule.js";
+import { daySequence, legInfo, legKey } from "./schedule.js";
 import type { createTripStore } from "./store.js";
 import type { Actor, Pid, Place, Sid, TripState } from "./types.js";
 
@@ -49,8 +49,11 @@ export function makeTransitFetcher(deps: { fetchFn?: typeof fetch; timeoutMs?: n
 export interface TransitLegTarget {
   fromPid: Pid;
   toPid: Pid;
-  toSid: Sid;
+  /** The stop this leg is filed under (carries the agent's pending mark): the
+   *  arriving stop, or the departing one for the return to lodging. */
+  sid: Sid;
   fromLabel: string; // "[s2]" or "lodging"
+  toLabel: string; // "[s3]" or "lodging"
 }
 
 /** Resolve the leg arriving at toSid on a day: previous stop or the lodging anchor. */
@@ -58,13 +61,24 @@ export function legTarget(s: TripState, day: number, toSid: Sid): TransitLegTarg
   const d = s.days[day - 1];
   const i = d.stops.indexOf(toSid);
   if (i < 0) return { error: `[${toSid}] is not on day ${day}.` };
+  const toLabel = `[${toSid}]`;
   if (i === 0) {
     const anchor = s.nights[day - 1];
     if (!anchor) return { error: `day ${day} has no lodging — its first stop has no arriving leg.` };
-    return { fromPid: anchor, toPid: s.stops[toSid].place, toSid, fromLabel: "lodging" };
+    return { fromPid: anchor, toPid: s.stops[toSid].place, sid: toSid, fromLabel: "lodging", toLabel };
   }
   const fromSid = d.stops[i - 1];
-  return { fromPid: s.stops[fromSid].place, toPid: s.stops[toSid].place, toSid, fromLabel: `[${fromSid}]` };
+  return { fromPid: s.stops[fromSid].place, toPid: s.stops[toSid].place, sid: toSid, fromLabel: `[${fromSid}]`, toLabel };
+}
+
+/** The day's return leg, last stop -> the night's lodging (none when the day ends at its last stop). */
+export function backLegTarget(s: TripState, day: number): TransitLegTarget | { error: string } {
+  const d = s.days[day - 1];
+  const last = d.stops[d.stops.length - 1];
+  if (!last) return { error: `day ${day} has no stops.` };
+  const { endAnchor } = daySequence(s, day);
+  if (!endAnchor) return { error: `day ${day} ends at [${last}] — no lodging to return to.` };
+  return { fromPid: s.stops[last].place, toPid: endAnchor, sid: last, fromLabel: `[${last}]`, toLabel: "lodging" };
 }
 
 /** The one step rendering for agent results:
@@ -79,9 +93,10 @@ export function transitSteps(leg: TransitLeg): string {
     .join("; ");
 }
 
-/** Resolve the leg named by the stop it DEPARTS from — `[s#]`, or 'lodging'
- *  for the day's first leg. The one addressing shared by set_leg_mode and
- *  get_leg_options; errors are the wording those tools return. */
+/** Resolve the leg named by the stop it DEPARTS from — `[s#]`, 'lodging' for
+ *  the day's first leg, the day's last stop for the return to lodging. The one
+ *  addressing shared by set_leg_mode and get_leg_options; errors are the
+ *  wording those tools return. */
 export function legFromStop(s: TripState, day: number, fromStop: Sid): TransitLegTarget | { error: string } {
   if (day < 1 || day > s.days.length) return { error: `day ${day} out of range (trip has ${s.days.length}).` };
   const d = s.days[day - 1];
@@ -92,9 +107,7 @@ export function legFromStop(s: TripState, day: number, fromStop: Sid): TransitLe
   }
   const i = d.stops.indexOf(fromStop);
   if (i < 0) return { error: `no stop [${fromStop}] on day ${day} — ids come from get_itinerary.` };
-  if (i === d.stops.length - 1) {
-    return { error: `[${fromStop}] is the last stop of D${day} — its leg is the return to lodging; use fromStop [${fromStop}] only if a next stop exists.` };
-  }
+  if (i === d.stops.length - 1) return backLegTarget(s, day);
   return legTarget(s, day, d.stops[i + 1]);
 }
 
@@ -102,21 +115,22 @@ export type ApplyTransitResult =
   | { ok: true; leg: TransitLeg; target: TransitLegTarget }
   | { ok: false; message: string };
 
-/** Fetch and apply a transit override for the leg arriving at toSid. */
+/** Fetch and apply a transit override for one leg: the leg arriving at a stop
+ *  (named by its sid), or any resolved target (e.g. backLegTarget). */
 export async function applyTransitLeg(
   trip: Pick<ReturnType<typeof createTripStore>, "store" | "actions">,
   fetchTransit: FetchTransit,
   actor: Actor,
   day: number,
-  toSid: Sid,
+  target: Sid | TransitLegTarget,
 ): Promise<ApplyTransitResult> {
   const s = trip.store.getState();
-  const t = legTarget(s, day, toSid);
+  const t = typeof target === "string" ? legTarget(s, day, target) : target;
   if ("error" in t) return { ok: false, message: `ERROR: ${t.error}` };
   const from = s.places[t.fromPid];
   const to = s.places[t.toPid];
 
-  const cur = computeDaySchedule(s, day).stops.find((x) => x.sid === toSid)?.legIn;
+  const cur = legInfo(s, t.fromPid, t.toPid);
   let leg: TransitLeg | null;
   try {
     leg = await fetchTransit(from, to);
@@ -126,15 +140,15 @@ export async function applyTransitLeg(
   if (!leg) {
     return {
       ok: false,
-      message: `ERROR: no transit route found — leg stays ${cur?.mode ?? "walk"} (${cur?.minutes ?? "?"}m).`,
+      message: `ERROR: no transit route found — leg stays ${cur.mode} (${cur.minutes}m).`,
     };
   }
   trip.actions.setLegOverride(
     actor,
     legKey(t.fromPid, t.toPid),
     { mode: "transit", transit: leg },
-    actor === "agent" ? toSid : undefined,
-    `leg into [${toSid}] -> transit (${leg.totalMin}m, ${leg.transfers} transfer${leg.transfers === 1 ? "" : "s"})`,
+    actor === "agent" ? t.sid : undefined,
+    `leg into ${t.toLabel} -> transit (${leg.totalMin}m, ${leg.transfers} transfer${leg.transfers === 1 ? "" : "s"})`,
   );
   return { ok: true, leg, target: t };
 }

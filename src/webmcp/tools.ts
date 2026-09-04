@@ -8,7 +8,7 @@ import type { PlaceCandidate } from "../ported/place-assert.js";
 import { runArrange } from "../store/arrange.js";
 import { planTrip } from "../store/plan.js";
 import { applyTransitLeg, legFromStop, transitSteps, type FetchTransit } from "../store/transit.js";
-import { computeDaySchedule } from "../store/schedule.js";
+import { computeDaySchedule, legInfo } from "../store/schedule.js";
 import type { createTripStore } from "../store/store.js";
 import type { ResolveResult } from "../store/nominatim.js";
 import type { TripState } from "../store/types.js";
@@ -302,12 +302,12 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
   const setLegMode: RegisterToolOptions = {
     name: "set_leg_mode",
     description:
-      "Set how one leg is travelled: walk, drive or transit. Name the leg by the stop it departs from ([s#] id; 'lodging' for a day's first leg). Legs default to walk under about 1.2 km and drive above — call this only to override. transit fetches live routes (a few seconds) and returns the steps: lines, headsigns, where to get off. If no transit route exists the leg keeps its old mode and the result says so. Pending.",
+      "Set how one leg is travelled: walk, drive or transit. Name the leg by the stop it departs from ([s#] id; 'lodging' for a day's first leg; the day's last stop names the return to lodging). Legs default to walk under about 1.2 km and drive above — call this only to override. transit fetches live routes (a few seconds) and returns the steps: lines, headsigns, where to get off. If no transit route exists the leg keeps its old mode and the result says so. Pending.",
     inputSchema: {
       type: "object",
       properties: {
         day: { type: "number", minimum: 1, description: "Day 1..N containing the leg." },
-        fromStop: { type: "string", description: "[s#] id the leg departs from, or 'lodging' for the day's first leg." },
+        fromStop: { type: "string", description: "[s#] id the leg departs from ('lodging' = day's first leg; the last stop = return to lodging)." },
         mode: { type: "string", enum: ["walk", "drive", "transit"], description: "walk | drive | transit." },
       },
       required: ["day", "fromStop", "mode"],
@@ -322,15 +322,14 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
       const { day } = p.data;
       const t = legFromStop(s, day, p.data.fromStop);
       if ("error" in t) return err(t.error);
-      const toSid = t.toSid;
 
       if (p.data.mode === "transit") {
-        const r = await applyTransitLeg(trip, deps.fetchTransit, "agent", day, toSid);
+        const r = await applyTransitLeg(trip, deps.fetchTransit, "agent", day, t);
         if (!r.ok) return r.message;
         const s2 = state();
         const e = lastEditId(s2);
         const steps = transitSteps(r.leg);
-        let out = `Leg ${r.target.fromLabel}->[${toSid}] transit ${r.leg.totalMin}m, ${r.leg.transfers} transfer${r.leg.transfers === 1 ? "" : "s"} [pending ${e}]`;
+        let out = `Leg ${t.fromLabel}->${t.toLabel} transit ${r.leg.totalMin}m, ${r.leg.transfers} transfer${r.leg.transfers === 1 ? "" : "s"} [pending ${e}]`;
         if (steps) out += `: ${steps}`;
         out += `. ${endsPhrase(s2, day)}.`;
         return out.length > 1500 ? out.slice(0, 1490) + "…" : out;
@@ -340,14 +339,13 @@ export function buildTools(deps: ToolDeps): RegisterToolOptions[] {
         "agent",
         legKey(t.fromPid, t.toPid),
         { mode: p.data.mode },
-        toSid,
-        `leg into [${toSid}] -> ${p.data.mode}`,
+        t.sid,
+        `leg into ${t.toLabel} -> ${p.data.mode}`,
       );
       const s2 = state();
       const e = lastEditId(s2);
-      const sched = computeDaySchedule(s2, day);
-      const leg = sched.stops.find((x) => x.sid === toSid)?.legIn;
-      return `Leg ${t.fromLabel}->[${toSid}] ${p.data.mode} ${leg?.approx ? "≈" : ""}${leg?.minutes}m [pending ${e}]; ${endsPhrase(s2, day)}.`;
+      const leg = legInfo(s2, t.fromPid, t.toPid);
+      return `Leg ${t.fromLabel}->${t.toLabel} ${p.data.mode} ${leg.approx ? "≈" : ""}${leg.minutes}m [pending ${e}]; ${endsPhrase(s2, day)}.`;
     }),
   };
 

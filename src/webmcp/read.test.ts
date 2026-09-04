@@ -220,7 +220,7 @@ describe("get_leg_options", () => {
     );
   });
 
-  it("unknown stop, out-of-range day and last-stop legs error like set_leg_mode", async () => {
+  it("unknown stop and out-of-range day error like set_leg_mode; the last stop reads the return leg", async () => {
     const { tools } = seeded();
     expect(await tools.get_leg_options.execute({ day: 1, fromStop: "s99" })).toBe(
       "ERROR: no stop [s99] on day 1 — ids come from get_itinerary.",
@@ -228,8 +228,8 @@ describe("get_leg_options", () => {
     expect(await tools.get_leg_options.execute({ day: 9, fromStop: "s1" })).toBe(
       "ERROR: day 9 out of range (trip has 3).",
     );
-    expect(await tools.get_leg_options.execute({ day: 1, fromStop: "s2" })).toContain(
-      "is the last stop of D1",
+    expect(await tools.get_leg_options.execute({ day: 1, fromStop: "s2" })).toMatch(
+      /^Leg \[s2\]->lodging .* -> Hotel Gracery, .*Nothing changed/,
     );
   });
 });

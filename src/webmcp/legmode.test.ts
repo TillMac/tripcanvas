@@ -1,9 +1,11 @@
 // set_leg_mode seam tests (T9): fromStop [s#] or 'lodging', transit steps in
-// the result, pair-keyed override in the store, pending on the arriving stop.
+// the result, pair-keyed override in the store, pending on the arriving stop
+// (or on the departing last stop for the return to lodging).
 import { describe, it, expect } from "vitest";
 import { buildTools, type ToolDeps } from "./tools.js";
 import { createTripStore, type PlaceInput } from "../store/store.js";
 import type { TransitLeg } from "../ported/motis.js";
+import { computeDaySchedule } from "../store/schedule.js";
 
 const P = (name: string, lat: number, lon: number): PlaceInput => ({ name, lat, lon, query: name.toLowerCase() });
 
@@ -66,16 +68,34 @@ describe("set_leg_mode", () => {
     );
   });
 
-  it("last-stop and unknown-stop errors match the design", async () => {
-    const { tools } = fakeDeps(async () => LEG);
-    expect(await tools.set_leg_mode.execute({ day: 1, fromStop: "s2", mode: "transit" })).toBe(
-      "ERROR: [s2] is the last stop of D1 — its leg is the return to lodging; use fromStop [s2] only if a next stop exists.",
-    );
+  it("the last stop names the return leg to lodging, marked on that stop", async () => {
+    const { trip, tools } = fakeDeps(async () => LEG);
+    const out = (await tools.set_leg_mode.execute({ day: 1, fromStop: "s2", mode: "transit" })) as string;
+    expect(out).toMatch(/^Leg \[s2\]->lodging transit 28m, 1 transfer \[pending e1\]/);
+    const s = trip.store.getState();
+    const hotel = s.nights[0]!;
+    expect(s.legOverrides[`${s.stops.s2.place}>${hotel}`]?.mode).toBe("transit");
+    expect(s.stops.s2.pending).toBe("e1");
+    expect(computeDaySchedule(s, 1).backLeg?.mode).toBe("transit");
+    // the handback stars the return leg, not the unchanged arriving leg
+    expect((await tools.get_itinerary.execute({ day: 1 })) as string).toMatch(/\[s2\] B [^\n]*\|drive≈4\| back transit28\*/);
+    // drive on the return leg, no fetch involved
+    expect(await tools.set_leg_mode.execute({ day: 1, fromStop: "s2", mode: "drive" })).toMatch(/^Leg \[s2\]->lodging drive/);
+  });
+
+  it("unknown-stop and day errors match the design; a day with no lodging has no return leg", async () => {
+    const { trip, tools } = fakeDeps(async () => LEG);
     expect(await tools.set_leg_mode.execute({ day: 1, fromStop: "s9", mode: "walk" })).toBe(
       "ERROR: no stop [s9] on day 1 — ids come from get_itinerary.",
     );
     expect(await tools.set_leg_mode.execute({ day: 5, fromStop: "s1", mode: "walk" })).toBe(
       "ERROR: day 5 out of range (trip has 2).",
+    );
+    // last day ending at its final stop: the last stop has no return leg to name
+    trip.actions.moveStop("human", "s2", 2);
+    trip.actions.setEndLastDayAtLodging("human", false);
+    expect(await tools.set_leg_mode.execute({ day: 2, fromStop: "s2", mode: "drive" })).toBe(
+      "ERROR: day 2 ends at [s2] — no lodging to return to.",
     );
   });
 

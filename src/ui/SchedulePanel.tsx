@@ -8,7 +8,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { useState } from "react";
 import { actions, fetchTransit, nominatim, trip } from "../store/index.js";
 import { toPlaceInput } from "../store/nominatim.js";
-import { applyTransitLeg } from "../store/transit.js";
+import { applyTransitLeg, backLegTarget, type TransitLegTarget } from "../store/transit.js";
 import { computeDaySchedule, type DaySchedule, type LegInfo } from "../store/schedule.js";
 import { fmtHHMM } from "../ported/schedule-ops.js";
 import { haversineKm } from "../ported/geo.js";
@@ -34,7 +34,7 @@ export async function cycleLegMode(
   s: TripState,
   leg: LegInfo,
   day: number,
-  toSid: string,
+  target: string | TransitLegTarget,
   onStatus: (msg: string | null) => void,
 ): Promise<void> {
   const order: LegMode[] = ["walk", "drive", "transit"];
@@ -49,16 +49,17 @@ export async function cycleLegMode(
     return;
   }
   onStatus("fetching transit route…");
-  const r = await applyTransitLeg(trip, fetchTransit, "human", day, toSid);
+  const r = await applyTransitLeg(trip, fetchTransit, "human", day, target);
   onStatus(r.ok ? null : r.message.replace(/^ERROR: /, ""));
   if (!r.ok) setTimeout(() => onStatus(null), 5000);
 }
 
-function LegLine({ leg, onCycle }: { leg: LegInfo; onCycle: () => void }) {
+function LegLine({ leg, label, onCycle }: { leg: LegInfo; label?: string; onCycle: () => void }) {
   const icon = MODE_ICON[leg.mode];
   return (
     <div className="flex items-center gap-2 py-1 text-[11px] text-slate-500">
       <span aria-hidden className="ml-[42px] h-4 w-0 shrink-0 border-l-2 border-dotted border-slate-300"></span>
+      {label && <span>{label}</span>}
       <button
         type="button"
         aria-label="cycle leg mode"
@@ -371,13 +372,17 @@ export function SchedulePanel({
       </DndContext>
 
       {sched.backLeg && (
-        <div className="flex items-center gap-2 py-1 text-[11px] text-slate-500">
-          <span aria-hidden className="ml-[42px] h-4 w-0 shrink-0 border-l-2 border-dotted border-slate-300"></span>
-          <span>
-            back to lodging {MODE_ICON[sched.backLeg.mode]}{" "}
-            {sched.backLeg.approx ? "≈" : ""}{sched.backLeg.minutes} min
-          </span>
-        </div>
+        <>
+          <LegLine
+            leg={sched.backLeg}
+            label="back to lodging"
+            onCycle={() => {
+              const t = backLegTarget(state, day);
+              if (!("error" in t)) void cycleLegMode(state, sched.backLeg!, day, t, setLegStatus);
+            }}
+          />
+          {sched.backLeg.mode === "transit" && <TransitSteps leg={sched.backLeg} />}
+        </>
       )}
 
       {legStatus && <div className="px-2 py-1 text-xs text-amber-700">{legStatus}</div>}
