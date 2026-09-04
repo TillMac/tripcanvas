@@ -4,7 +4,7 @@ import { actions, trip } from "./store/index.js";
 import { loadSampleTrip } from "./store/sampleTrip.js";
 import { tripWarnings } from "./store/schedule.js";
 import { computeDaySchedule } from "./store/schedule.js";
-import { AgentView } from "./ui/AgentView.js";
+import { AgentView, HumanView } from "./ui/AgentView.js";
 import { CandidateDrawer } from "./ui/CandidateDrawer.js";
 import { DayTabs } from "./ui/DayTabs.js";
 import { MapPane, type MapLeg, type MapMarker } from "./ui/MapPane.js";
@@ -234,6 +234,7 @@ export default function App({ agentAvailable }: { agentAvailable: boolean }) {
               <SchedulePanel day={day} selectedId={selectedId} onSelect={setSelectedId} />
             )}
             {!empty && <CandidateDrawer activeDay={day} />}
+            {!empty && <HumanView />}
             {!empty && <AgentView />}
           </div>
         </div>
